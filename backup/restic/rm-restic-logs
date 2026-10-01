@@ -1,0 +1,9 @@
+#!/bin/bash
+
+# remove home backup logs
+rm -rf ~/backups/restic-home-backup.stderr
+rm -rf ~/backups/restic-home-backup.stdout
+
+# remove system backup logs
+sudo rm -rf /var/log/restic-system-backup.stderr
+sudo rm -rf /var/log/restic-system-backup.stdout

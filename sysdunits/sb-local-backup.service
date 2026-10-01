@@ -1,0 +1,6 @@
+[Unit]
+Description=Obsidian Vault Local Backup Service
+
+[Service]
+Type=oneshot
+ExecStart=%h/scripts/backup/rsync/sb-local-backup

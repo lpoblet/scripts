@@ -1,0 +1,26 @@
+[Unit]
+Description=Restic Local System Backup Service
+After=network.target
+Wants=network.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/restic/local.system.repo.env
+
+# Define fallback environment variables for Restic
+Environment="HOME=/root"
+Environment="RESTIC_CACHE_DIR=/var/cache/restic"
+
+ExecStart=/usr/local/bin/restic-local-system-backup
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=12h
+PrivateTmp=true
+ProtectSystem=true
+ReadWritePaths=/mnt/backups/local/system
+StandardOutput=file:/var/log/restic-local-system-backup.stdout
+StandardError=file:/var/log/restic-local-system-backup.stderr
+NotifyAccess=all
+
+[Install]
+WantedBy=default.target

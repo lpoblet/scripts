@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_NAME="$(basename "$0")"
+
+usage() {
+    cat <<EOF
+Usage: ${SCRIPT_NAME} [OPTIONS] <MINUTES>
+
+Start a Pomodoro timer for a specified number of minutes, notify on completion, and exit.
+
+Arguments:
+  MINUTES                 Duration in minutes (required, positive number)
+
+Options:
+  -m, --message TEXT      Notification message (default: 'Pomodoro timer finished!')
+  -t, --title TEXT        Notification title (default: 'Pomodoro')
+  -n, --dry-run           Preview timer settings without running
+  -h, --help              Show this help message and exit
+
+Examples:
+  ${SCRIPT_NAME} 25
+  ${SCRIPT_NAME} 5 -m "Short break finished!"
+  ${SCRIPT_NAME} --dry-run 25
+EOF
+}
+
+# Require parameters: if no arguments supplied, show usage and exit with error
+if [[ $# -eq 0 ]]; then
+    usage >&2
+    exit 2
+fi
+
+DRY_RUN=false
+MINUTES=""
+MESSAGE="Pomodoro timer finished!"
+TITLE="Pomodoro"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -n|--dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        -m|--message)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: Option '$1' requires an argument" >&2
+                usage >&2
+                exit 2
+            fi
+            MESSAGE="$2"
+            shift 2
+            ;;
+        -t|--title)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: Option '$1' requires an argument" >&2
+                usage >&2
+                exit 2
+            fi
+            TITLE="$2"
+            shift 2
+            ;;
+        -*)
+            echo "Error: Unknown option '$1'" >&2
+            usage >&2
+            exit 2
+            ;;
+        *)
+            if [[ -z "$MINUTES" ]]; then
+                MINUTES="$1"
+            else
+                echo "Error: Unexpected argument '$1'" >&2
+                usage >&2
+                exit 2
+            fi
+            shift
+            ;;
+    esac
+done
+
+if [[ -z "$MINUTES" ]]; then
+    echo "Error: Missing required argument <MINUTES>" >&2
+    usage >&2
+    exit 2
+fi
+
+# Validate MINUTES is a positive integer or float
+if ! [[ "$MINUTES" =~ ^[0-9]+(\.[0-9]+)?$ ]] || ! awk -v m="$MINUTES" 'BEGIN { exit (m > 0 ? 0 : 1) }'; then
+    echo "Error: <MINUTES> must be a positive number. Got: '${MINUTES}'" >&2
+    usage >&2
+    exit 2
+fi
+
+# Calculate total seconds
+SECONDS_TOTAL=$(awk -v m="$MINUTES" 'BEGIN { s = m * 60; printf "%d", (s < 1 ? 1 : s) }')
+
+if [[ "$DRY_RUN" == true ]]; then
+    echo "[DRY-RUN] Timer: ${MINUTES} minute(s) (${SECONDS_TOTAL} seconds)"
+    echo "[DRY-RUN] Notification: [${TITLE}] ${MESSAGE}"
+    exit 0
+fi
+
+# Prevent overlapping timers
+LOCK_FILE="${XDG_RUNTIME_DIR:-/tmp}/pomodoro_${UID:-$(id -u)}.lock"
+exec 200>"$LOCK_FILE"
+if ! flock -n 200; then
+    echo "A Pomodoro timer is already running." >&2
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send -u normal -i dialog-warning "Pomodoro" "A Pomodoro timer is already running." 2>/dev/null || true
+    fi
+    exit 1
+fi
+
+cleanup() {
+    if [[ -t 1 ]]; then
+        printf "\r\033[K" >&2
+    fi
+}
+
+on_interrupt() {
+    cleanup
+    echo "Pomodoro timer cancelled." >&2
+    exit 130
+}
+
+trap on_interrupt INT TERM
+trap cleanup EXIT
+
+echo "Starting Pomodoro for ${MINUTES} minute(s)..."
+
+if [[ -t 1 ]]; then
+    remaining=$SECONDS_TOTAL
+    while [[ $remaining -gt 0 ]]; do
+        mins=$(( remaining / 60 ))
+        secs=$(( remaining % 60 ))
+        printf "\r🍅 Time remaining: %02d:%02d " "$mins" "$secs"
+        sleep 1
+        remaining=$(( remaining - 1 ))
+    done
+    printf "\r\033[K"
+else
+    sleep "$SECONDS_TOTAL"
+fi
+
+echo "Pomodoro completed: ${MINUTES} minute(s)"
+
+# Desktop notification
+if command -v notify-send >/dev/null 2>&1; then
+    notify-send -u normal -i alarm "$TITLE" "$MESSAGE" 2>/dev/null || true
+fi
+
+# Terminal bell
+if [[ -t 1 ]]; then
+    printf '\a'
+fi

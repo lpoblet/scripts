@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# --- CONFIGURATION ---
+SOURCE_DIR="$HOME/Documents/second-brain/"   # Update to your actual path
+BACKUP_DIR="$HOME/backups/second-brain/"     # Update to your backup destination
+
+# Prevent overlapping syncs if a previous run is still active
+LOCKFILE="/tmp/obsidian_backup.lock"
+exec 200>"$LOCKFILE"
+flock -n 200 || {
+  notify-send -u low -i dialogue-warning "Obsidian Local Backup" "Backup already in progress."
+  exit 0
+}
+
+# Ensure destination directory exists
+mkdir -p "$BACKUP_DIR"
+
+# Run rsync
+# -a: archive mode (preserves permissions, timestamps, symlinks)
+# --delete: mirror local deletions
+# --exclude: ignore temporary workspace layout states if desired
+# For exclusions add these lines between rsync -avz line and "$SOURCE_DIR"'s one
+  #--exclude='.obsidian/workspace.json' \
+  #--exclude='.obsidian/workspace-mobile.json' \
+if rsync -avz --delete \
+  "$SOURCE_DIR" "$BACKUP_DIR"; then
+
+  notify-send -u low -i document-save "Obsidian Local Backup" "Local Backup completed successfully!"
+else
+  notify-send -u critical -i dialog-error "Obsidian Local Backup" "Local Backup failed! Check journal logs."
+  exit 1
+fi
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Local Obsidian Backup Complete."

@@ -1,0 +1,71 @@
+#!/bin/bash
+
+# Set environment variables for repository
+# For testing on local SSD:
+# export RESTIC_REPOSITORY="/mnt/backup/home/"
+# export RESTIC_PASSWORD_FILE="/etc/restic/home.repo.key"
+
+# Load environment variables
+if [ -f /etc/restic/restic.remote.repo.env ]; then
+    source /etc/restic/restic.remote.repo.env
+else
+    echo "ERROR: Environment file /etc/restic/restic.remote.repo.env not found!"
+    exit 1
+fi
+
+# Verify variables are set
+if [ -z "$RESTIC_REPOSITORY" ]; then
+    echo "ERROR: RESTIC_REPOSITORY is not set!"
+    exit 1
+fi
+
+# Check network connectivity to the server
+if ! ping -c 1 -W 2 192.168.100.154 >/dev/null 2>&1; then
+    echo "Server unreachable, skipping backup"
+    exit 0
+fi
+
+# Run the backup
+echo "Starting backup at $(date)"
+systemd-notify --ready --status="Remote home backup in progress..."
+
+# Set DBUS for GUI notifications
+export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
+
+#echo "$RESTIC_REPOSITORY"
+#echo "$RESTIC_PASSWORD_FILE"
+# Optional: run this command to check the use of the password
+# restic -r "$RESTIC_REPOSITORY" snapshots
+
+# Do the backup - note "backup" comes before $HOME
+#    --dry-run \
+if restic -r "$RESTIC_REPOSITORY" --verbose --tag "home" backup /home/leo/ --exclude-file="$HOME/.local/bin/restic-home-exclude"; then
+    notify-send -u low -i document-save "Restic Home Backup" "Remote backup completed successfully!" 2>/dev/null || true
+    echo "Backup completed successfully"
+    exit 0
+else
+    notify-send -u critical -i dialog-error "Restic Home Backup" "Remote backup failed! Check journal logs." 2>/dev/null || true
+    echo "Backup failed!"
+    exit 1
+fi
+
+# Maintain backups - Keep 7 daily, 4 weekly, and 12 monthly backups
+echo "Pruning old backups..."
+restic -r "$RESTIC_REPOSITORY" forget \
+  --keep-daily 7 \
+  --keep-weekly 4 \
+  --keep-monthly 12 \
+  --prune \
+  --tag "home"
+
+# Check repository integrity
+echo "Checking repository integrity..."
+restic -r "$RESTIC_REPOSITORY" check
+
+# Delete environment variables
+unset RESTIC_PASSWORD
+unset RESTIC_REPOSITORY
+unset RESTIC_PASSWORD_FILE
+
+echo "Backup completed at $(date)"
+systemd-notify --ready --status="Remote Home Backup completed..."

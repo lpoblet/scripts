@@ -1,0 +1,33 @@
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Secrets & credentials
+*.key
+*.pem
+*.crt
+*.p12
+.env
+*.env
+.venv
+*.venv
+.secrets
+*.secret
+id_rsa*
+id_ed25519*
+*.priv
+*.privkey
+*.repo.key
+
+# Project specific
+.junie/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Restic local test/temp files (if any)
+*.bak
