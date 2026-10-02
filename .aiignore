@@ -1,0 +1,59 @@
+# .aiignore
+# Keep sensitive and irrelevant files out of AI agent context.
+
+# --- Secrets & credentials ---
+*.key
+*.pem
+*.crt
+*.p12
+.env
+*.env
+.secrets
+*.secret
+id_rsa*
+*.priv
+*.privkey
+
+# Repo-specific secrets / machine-local overrides (kept out of git too)
+*.repo.env
+*.repo.key
+.gitconfig.local
+alacritty-local.toml
+
+# --- Python artifacts (for any future Python scripts) ---
+*.pyc
+*.pyo
+__pycache__/
+.venv/
+venv/
+*.egg-info/
+
+# --- Temporary / editor swap files ---
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.DS_Store
+
+# --- Logs & runtime ---
+*.log
+logs/
+*.pid
+
+# --- Backups & stale copies ---
+*.bak
+*.backup
+*.old
+*.orig
+
+# --- IDE ---
+.idea/
+.vscode/
+
+# --- Large binaries ---
+*.mp4
+*.mp3
+*.wav
+*.iso
+*.bin
