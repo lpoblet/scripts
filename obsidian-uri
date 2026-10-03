@@ -1,0 +1,253 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_NAME="$(basename "$0")"
+
+DEFAULT_VAULT="second-brain"
+DEFAULT_VAULT_DIR="$HOME/Documents/second-brain"
+
+usage() {
+    cat <<EOF
+Usage: ${SCRIPT_NAME} [OPTIONS] <FILE>
+
+Converts a file path in the Obsidian second-brain vault into an Obsidian URI and copies it to the clipboard.
+
+Arguments:
+  FILE                    File name or path relative/absolute to the vault (required)
+
+Options:
+  -m, --markdown          Copy as Markdown link format [Title](obsidian://open?...)
+  -p, --print             Print generated URI to stdout
+  -v, --vault NAME        Vault name (default: 'second-brain')
+  -d, --vault-dir DIR     Vault directory (default: '\$HOME/Documents/second-brain')
+  -n, --dry-run           Preview URI without modifying clipboard
+  -h, --help              Show this help message and exit
+
+Examples:
+  ${SCRIPT_NAME} "Fleeting Notes/Meeting.md"
+  ${SCRIPT_NAME} -m "Projects/Migration.md"
+  ${SCRIPT_NAME} ~/Documents/second-brain/Daily/2026-03-30.md
+EOF
+}
+
+# Require parameters: if no arguments supplied, show usage and exit with error
+if [[ $# -eq 0 ]]; then
+    usage >&2
+    exit 2
+fi
+
+MARKDOWN=false
+PRINT_STDOUT=false
+VAULT_NAME="$DEFAULT_VAULT"
+VAULT_DIR="$DEFAULT_VAULT_DIR"
+DRY_RUN=false
+TARGET_FILE=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -m|--markdown)
+            MARKDOWN=true
+            shift
+            ;;
+        -p|--print)
+            PRINT_STDOUT=true
+            shift
+            ;;
+        -v|--vault)
+            if [[ $# -lt 2 || -z "$2" ]]; then
+                echo "Error: Option '$1' requires a non-empty vault name argument." >&2
+                usage >&2
+                exit 2
+            fi
+            VAULT_NAME="$2"
+            shift 2
+            ;;
+        -d|--vault-dir)
+            if [[ $# -lt 2 || -z "$2" ]]; then
+                echo "Error: Option '$1' requires a non-empty directory path argument." >&2
+                usage >&2
+                exit 2
+            fi
+            VAULT_DIR="$2"
+            shift 2
+            ;;
+        -n|--dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        -*)
+            echo "Error: Unknown option '$1'" >&2
+            usage >&2
+            exit 2
+            ;;
+        *)
+            if [[ -z "$TARGET_FILE" ]]; then
+                TARGET_FILE="$1"
+            else
+                echo "Error: Unexpected argument '$1'" >&2
+                usage >&2
+                exit 2
+            fi
+            shift
+            ;;
+    esac
+done
+
+if [[ -z "$TARGET_FILE" ]]; then
+    echo "Error: Missing required argument <FILE>" >&2
+    usage >&2
+    exit 2
+fi
+
+# Normalize VAULT_DIR (remove trailing slash)
+VAULT_DIR="${VAULT_DIR%/}"
+
+# Resolve relative path within the vault
+REL_PATH=""
+
+# Handle tilde expansion if passed literally
+if [[ "$TARGET_FILE" =~ ^~(/.*)?$ ]]; then
+    TARGET_FILE="${HOME}${TARGET_FILE#\~}"
+fi
+
+# 1. If absolute path starts with VAULT_DIR
+if [[ "$TARGET_FILE" == "$VAULT_DIR"/* ]]; then
+    REL_PATH="${TARGET_FILE#"$VAULT_DIR"/}"
+elif [[ "$TARGET_FILE" == "$VAULT_DIR" ]]; then
+    REL_PATH=""
+# 2. If running from inside VAULT_DIR and absolute path or relative path exists
+elif [[ "$TARGET_FILE" = /* ]]; then
+    # Absolute path outside VAULT_DIR - check if canonical path starts with VAULT_DIR
+    CANONICAL_TARGET=""
+    if [[ -e "$TARGET_FILE" ]]; then
+        CANONICAL_TARGET="$(realpath -m "$TARGET_FILE")"
+    else
+        CANONICAL_TARGET="$TARGET_FILE"
+    fi
+
+    CANONICAL_VAULT=""
+    if [[ -d "$VAULT_DIR" ]]; then
+        CANONICAL_VAULT="$(realpath -m "$VAULT_DIR")"
+    else
+        CANONICAL_VAULT="$VAULT_DIR"
+    fi
+
+    if [[ "$CANONICAL_TARGET" == "$CANONICAL_VAULT"/* ]]; then
+        REL_PATH="${CANONICAL_TARGET#"$CANONICAL_VAULT"/}"
+    else
+        # If absolute path is outside the vault, strip leading slash as fallback
+        REL_PATH="${TARGET_FILE#/}"
+    fi
+else
+    # Relative path provided
+    # If the user is inside VAULT_DIR (or subfolder), resolve relative to PWD first if exists
+    CURRENT_DIR="$(pwd -P 2>/dev/null || pwd)"
+    CANONICAL_VAULT=""
+    if [[ -d "$VAULT_DIR" ]]; then
+        CANONICAL_VAULT="$(realpath -m "$VAULT_DIR" 2>/dev/null || echo "$VAULT_DIR")"
+    else
+        CANONICAL_VAULT="$VAULT_DIR"
+    fi
+
+    if [[ "$CURRENT_DIR" == "$CANONICAL_VAULT"/* || "$CURRENT_DIR" == "$CANONICAL_VAULT" ]] && [[ -e "$TARGET_FILE" ]]; then
+        FULL_PATH="$(realpath -m "$TARGET_FILE" 2>/dev/null || echo "$CURRENT_DIR/$TARGET_FILE")"
+        if [[ "$FULL_PATH" == "$CANONICAL_VAULT"/* ]]; then
+            REL_PATH="${FULL_PATH#"$CANONICAL_VAULT"/}"
+        else
+            REL_PATH="$TARGET_FILE"
+        fi
+    elif [[ -d "$VAULT_DIR" && -e "$VAULT_DIR/$TARGET_FILE" ]]; then
+        REL_PATH="$TARGET_FILE"
+    else
+        # Even if file doesn't exist on disk yet, accept the relative path as target
+        REL_PATH="$TARGET_FILE"
+    fi
+fi
+
+# Clean leading slashes or ./ from REL_PATH
+REL_PATH="${REL_PATH#./}"
+REL_PATH="${REL_PATH#/}"
+
+# URL Encode function
+url_encode() {
+    local raw_str="$1"
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c 'import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$raw_str"
+    else
+        # Fallback pure bash percent-encoding
+        local length="${#raw_str}"
+        local encoded=""
+        local c
+        for (( i = 0; i < length; i++ )); do
+            c="${raw_str:i:1}"
+            case "$c" in
+                [a-zA-Z0-9.~_-]) encoded+="$c" ;;
+                *) printf -v hex '%%%02X' "'$c"; encoded+="$hex" ;;
+            esac
+        done
+        echo "$encoded"
+    fi
+}
+
+ENCODED_VAULT="$(url_encode "$VAULT_NAME")"
+ENCODED_FILE="$(url_encode "$REL_PATH")"
+
+OBSIDIAN_URI="obsidian://open?vault=${ENCODED_VAULT}&file=${ENCODED_FILE}"
+
+FINAL_OUTPUT="$OBSIDIAN_URI"
+
+if [[ "$MARKDOWN" == true ]]; then
+    # Extract note title: strip directory path and optional .md extension
+    NOTE_BASENAME="$(basename "$REL_PATH")"
+    NOTE_TITLE="${NOTE_BASENAME%.md}"
+    FINAL_OUTPUT="[${NOTE_TITLE}](${OBSIDIAN_URI})"
+fi
+
+# Clipboard copy function
+copy_to_clipboard() {
+    local content="$1"
+    if command -v wl-copy >/dev/null 2>&1; then
+        printf "%s" "$content" | wl-copy
+        return 0
+    elif command -v xclip >/dev/null 2>&1; then
+        printf "%s" "$content" | xclip -selection clipboard
+        return 0
+    elif command -v xsel >/dev/null 2>&1; then
+        printf "%s" "$content" | xsel --clipboard --input
+        return 0
+    elif command -v pbcopy >/dev/null 2>&1; then
+        printf "%s" "$content" | pbcopy
+        return 0
+    else
+        return 1
+    fi
+}
+
+send_notification() {
+    local title="Obsidian URI"
+    local message="$1"
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send -u low -i obsidian "$title" "$message" 2>/dev/null || true
+    fi
+}
+
+if [[ "$DRY_RUN" == true ]]; then
+    echo "$FINAL_OUTPUT"
+    exit 0
+fi
+
+if copy_to_clipboard "$FINAL_OUTPUT"; then
+    send_notification "Copied URI to clipboard: $FINAL_OUTPUT"
+    if [[ "$PRINT_STDOUT" == true ]]; then
+        echo "$FINAL_OUTPUT"
+    fi
+else
+    echo "Warning: No clipboard utility found (wl-copy, xclip, xsel, pbcopy)." >&2
+    echo "$FINAL_OUTPUT"
+fi
+
+exit 0

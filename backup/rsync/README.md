@@ -8,6 +8,7 @@ Differential file synchronization scripts designed for Obsidian vaults and Markd
 
 - `sb-local-backup`: Mirrors local Obsidian vault (`$HOME/Documents/second-brain/`) to local backup directory (`$HOME/backups/second-brain/`) using `rsync -avz --delete` and `flock`.
 - `sb-remote-backup`: Syncs local vault to a remote device over SSH with pre-flight network reachability testing.
+- `obsidian-uri`: (Located in root) Converts a note file path within the vault into an Obsidian URI or Markdown link and copies it to the clipboard for referencing notes across vaults or apps.
 
 ---
 

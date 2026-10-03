@@ -8,6 +8,7 @@ Modular system utilities, snapshot backup automation, and background synchroniza
 
 ```text
 scripts/
+├── obsidian-uri                        # Converts second-brain note paths to Obsidian URIs and copies to clipboard
 ├── path                                # Formats and prints $PATH entries per line
 ├── pomodoro                            # Robust CLI Pomodoro countdown timer with notifications
 ├── backup/
@@ -49,12 +50,46 @@ Install required tools based on your Linux distribution:
 | **Restic** | `pacman -S restic` | `apt install restic` | `dnf install restic` | Encrypted snapshot backups |
 | **Rsync** | `pacman -S rsync` | `apt install rsync` | `dnf install rsync` | Differential vault sync |
 | **flock** | `pacman -S util-linux` | `apt install util-linux` | `dnf install util-linux` | Concurrency lock management |
+| **wl-clipboard** / **xclip** | `pacman -S wl-clipboard xclip` | `apt install wl-clipboard xclip` | `dnf install wl-clipboard xclip` | Clipboard integration (`wl-copy`, `xclip`) |
 | **libnotify** | `pacman -S libnotify` | `apt install libnotify-bin` | `dnf install libnotify` | Desktop notifications (`notify-send`) |
 | **OpenSSH** | `pacman -S openssh` | `apt install openssh-client` | `dnf install openssh-clients` | Remote backup transport |
 
 ---
 
 ## General CLI Utilities
+
+### `obsidian-uri`
+Converts a note file path within an Obsidian vault (default: `$HOME/Documents/second-brain/`) into an RFC 3986 compliant Obsidian URI (`obsidian://open?vault=...&file=...`) and copies it to the system clipboard (`wl-copy`, `xclip`, `xsel`, `pbcopy`).
+
+- **Usage**:
+  ```bash
+  obsidian-uri [OPTIONS] <FILE>
+  ```
+- **Arguments**:
+  - `<FILE>`: File name or path relative/absolute to the vault (required).
+- **Options**:
+  - `-m, --markdown`: Copy as Markdown link format `[Note Title](obsidian://open?...)`.
+  - `-p, --print`: Print generated URI to `stdout` in addition to copying to clipboard.
+  - `-v, --vault NAME`: Override vault name (default: `second-brain`).
+  - `-d, --vault-dir DIR`: Override vault directory path (default: `$HOME/Documents/second-brain`).
+  - `-n, --dry-run`: Preview generated URI without modifying clipboard.
+  - `-h, --help`: Display usage and options.
+- **Examples**:
+  ```bash
+  # Copy raw URI for a note
+  obsidian-uri "Fleeting Notes/Meeting.md"
+
+  # Copy Markdown formatted link
+  obsidian-uri -m "Projects/Migration Plan.md"
+
+  # Pass full absolute path or tilde path
+  obsidian-uri ~/Documents/second-brain/Daily/2026-10-02.md
+
+  # Preview URI without copying to clipboard
+  obsidian-uri --dry-run -m "Research/Quantum Physics.md"
+  ```
+
+---
 
 ### `path`
 Prints each directory in the `$PATH` environment variable on a separate line for rapid inspection and debugging.
