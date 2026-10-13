@@ -1,5 +1,5 @@
 [Unit]
-Description=Obsidian Vault Remote Backup Service over SSH
+Description=Second Brain Obsidian Vault Remote Backup Service over SSH
 
 [Service]
 Type=oneshot

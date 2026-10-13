@@ -4,12 +4,13 @@ set -euo pipefail
 # --- CONFIGURATION ---
 SOURCE_DIR="$HOME/Documents/second-brain/"   # Update to your actual path
 BACKUP_DIR="$HOME/backups/second-brain/"     # Update to your backup destination
+BACKUP_NAME="Second Brain"
 
 # Prevent overlapping syncs if a previous run is still active
-LOCKFILE="/tmp/obsidian_backup.lock"
+LOCKFILE="/tmp/obsidian_sb_backup.lock"
 exec 200>"$LOCKFILE"
 flock -n 200 || {
-  notify-send -u low -i dialogue-warning "Obsidian Local Backup" "Backup already in progress."
+  notify-send -u low -i dialogue-warning "Local Rsync" "$BACKUP_NAME Backup already in progress."
   exit 0
 }
 
@@ -26,10 +27,9 @@ mkdir -p "$BACKUP_DIR"
 if rsync -avz --delete \
   "$SOURCE_DIR" "$BACKUP_DIR"; then
 
-  notify-send -u low -i document-save "Obsidian Local Backup" "Local Backup completed successfully!"
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Local Rsync - $BACKUP_NAME Backup Complete."
+  notify-send -u low -i document-save "Local Rsync" "$BACKUP_NAME Backup Completed Successfully!"
 else
-  notify-send -u critical -i dialog-error "Obsidian Local Backup" "Local Backup failed! Check journal logs."
+  notify-send -u critical -i dialog-error "Local Rsync" "$BACKUP_NAME Backup failed! Check journal logs."
   exit 1
 fi
-
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Local Obsidian Backup Complete."

@@ -1,0 +1,10 @@
+[Unit]
+Description=Zettelkasten Obsidian Vault Local Backup - Every 30 Minutes
+
+[Timer]
+OnBootSec=20min
+OnUnitActiveSec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

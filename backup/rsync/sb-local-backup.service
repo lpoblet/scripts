@@ -1,5 +1,5 @@
 [Unit]
-Description=Obsidian Vault Local Backup Service
+Description=Second Brain Obsidian Vault Local Backup Service
 
 [Service]
 Type=oneshot

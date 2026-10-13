@@ -1,0 +1,6 @@
+[Unit]
+Description=Zettelkasten Obsidian Vault Local Backup Service
+
+[Service]
+Type=oneshot
+ExecStart=%h/scripts/backup/rsync/zk-local-backup

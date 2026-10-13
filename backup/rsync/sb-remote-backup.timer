@@ -1,5 +1,5 @@
 [Unit]
-Description=Run Obsidian Remote Backup Every Hour
+Description=Second Brain Obsidian Vault Remote Backup - Every Hour
 
 [Timer]
 OnBootSec=10min

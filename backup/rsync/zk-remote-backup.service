@@ -1,0 +1,6 @@
+[Unit]
+Description=Zettelkasten Obsidian Vault Remote Backup Service over SSH
+
+[Service]
+Type=oneshot
+ExecStart=%h/scripts/backup/rsync/zk-remote-backup

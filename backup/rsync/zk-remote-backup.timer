@@ -1,0 +1,10 @@
+[Unit]
+Description=Zettelkasten Obsidian Vault Remote Backup - Every Hour
+
+[Timer]
+OnBootSec=40min
+OnUnitActiveSec=60min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

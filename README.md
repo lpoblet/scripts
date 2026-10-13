@@ -59,7 +59,7 @@ Install required tools based on your Linux distribution:
 ## General CLI Utilities
 
 ### `obsidian-uri`
-Converts a note file path within an Obsidian vault (default: `$HOME/Documents/second-brain/`) into an RFC 3986 compliant Obsidian URI (`obsidian://open?vault=...&file=...`) and copies it to the system clipboard (`wl-copy`, `xclip`, `xsel`, `pbcopy`).
+Converts a note file path within an Obsidian vault (default: `$HOME/Documents/second-brain/`) into an RFC 3986 compliant Obsidian URI (`obsidian://open?vault=...&file=...`) and copies it to the system clipboard (`wl-copy`, `xclip`, `xsel`, `pbcopy`). By default, the `vault` parameter is set to the URL-encoded full directory path of the vault.
 
 - **Usage**:
   ```bash
@@ -70,7 +70,7 @@ Converts a note file path within an Obsidian vault (default: `$HOME/Documents/se
 - **Options**:
   - `-m, --markdown`: Copy as Markdown link format `[Note Title](obsidian://open?...)`.
   - `-p, --print`: Print generated URI to `stdout` in addition to copying to clipboard.
-  - `-v, --vault NAME`: Override vault name (default: `second-brain`).
+  - `-v, --vault NAME`: Override vault name (default: URL-encoded full path of vault directory).
   - `-d, --vault-dir DIR`: Override vault directory path (default: `$HOME/Documents/second-brain`).
   - `-n, --dry-run`: Preview generated URI without modifying clipboard.
   - `-h, --help`: Display usage and options.

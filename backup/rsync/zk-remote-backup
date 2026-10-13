@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# --- CONFIGURATION ---
+SOURCE_DIR="$HOME/Documents/zettelkasten/"
+BACKUP_NAME="Zettelkasten"
+
+# Remote Target Info (Update these values)
+REMOTE_USER="leo"                               # Username on remote laptop
+REMOTE_HOST="x1c3"                              # IP address or local hostname (e.g., laptop.local)
+REMOTE_DIR="$HOME/Documents/zettelkasten/"
+CONNECT_TIMEOUT=3                               # Timeout in seconds for reachability check
+
+# Lockfile to prevent overlapping runs
+LOCKFILE="/tmp/obsidian_remote_zk_backup.lock"
+exec 200>"$LOCKFILE"
+flock -n 200 || { exit 0; }
+
+# --- 1. NETWORK REACHABILITY CHECK ---
+# BatchMode=yes prevents SSH from asking for passwords
+# ConnectTimeout prevents systemd from hanging if the host is down
+if ! ssh -q -o ConnectTimeout="$CONNECT_TIMEOUT" -o BatchMode=yes "${REMOTE_USER}@${REMOTE_HOST}" exit 2>/dev/null; then
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Remote host (${REMOTE_HOST}) unreachable. Skipping backup."
+  exit 0
+fi
+
+# --- 2. ENSURE REMOTE DIRECTORY EXISTS ---
+ssh "${REMOTE_USER}@${REMOTE_HOST}" "mkdir -p '${REMOTE_DIR}'"
+
+# If using exclude, copy these lines between if rsync line and "$SOURCE_DIR" "$REMOTE_DIR"
+#  --exclude='.obsidian/workspace.json' \
+#  --exclude='.obsidian/workspace-mobile.json' \
+# --- 3. RUN RSYNC VIA SSH ---
+if rsync -avz --delete \
+  -e ssh \
+  "$SOURCE_DIR" "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}"; then
+
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Remote Rsync - $BACKUP_NAME Backup Complete."
+  notify-send -u low -i network-transmit-receive "Remote Rsync Backup" "$BACKUP_NAME Synced to ${REMOTE_HOST}"
+else
+  notify-send -u critical -i dialog-error "Remote Rsync Backup" "$BACKUP_NAME Sync to ${REMOTE_HOST} failed!"
+  exit 1
+fi

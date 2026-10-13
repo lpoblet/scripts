@@ -3,7 +3,6 @@ set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
 
-DEFAULT_VAULT="second-brain"
 DEFAULT_VAULT_DIR="$HOME/Documents/second-brain"
 
 usage() {
@@ -18,7 +17,7 @@ Arguments:
 Options:
   -m, --markdown          Copy as Markdown link format [Title](obsidian://open?...)
   -p, --print             Print generated URI to stdout
-  -v, --vault NAME        Vault name (default: 'second-brain')
+  -v, --vault NAME        Vault name override (default: URL-encoded vault directory path)
   -d, --vault-dir DIR     Vault directory (default: '\$HOME/Documents/second-brain')
   -n, --dry-run           Preview URI without modifying clipboard
   -h, --help              Show this help message and exit
@@ -38,7 +37,7 @@ fi
 
 MARKDOWN=false
 PRINT_STDOUT=false
-VAULT_NAME="$DEFAULT_VAULT"
+VAULT_NAME=""
 VAULT_DIR="$DEFAULT_VAULT_DIR"
 DRY_RUN=false
 TARGET_FILE=""
@@ -101,6 +100,11 @@ if [[ -z "$TARGET_FILE" ]]; then
     echo "Error: Missing required argument <FILE>" >&2
     usage >&2
     exit 2
+fi
+
+# Handle tilde expansion for VAULT_DIR if passed literally
+if [[ "$VAULT_DIR" =~ ^~(/.*)?$ ]]; then
+    VAULT_DIR="${HOME}${VAULT_DIR#\~}"
 fi
 
 # Normalize VAULT_DIR (remove trailing slash)
@@ -193,7 +197,8 @@ url_encode() {
     fi
 }
 
-ENCODED_VAULT="$(url_encode "$VAULT_NAME")"
+TARGET_VAULT="${VAULT_NAME:-$VAULT_DIR}"
+ENCODED_VAULT="$(url_encode "$TARGET_VAULT")"
 ENCODED_FILE="$(url_encode "$REL_PATH")"
 
 OBSIDIAN_URI="obsidian://open?vault=${ENCODED_VAULT}&file=${ENCODED_FILE}"
