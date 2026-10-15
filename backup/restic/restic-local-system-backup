@@ -19,26 +19,6 @@ if [ -z "$RESTIC_REPOSITORY" ]; then
     exit 1
 fi
 
-# Export package lists
-echo "Exporting package lists..."
-PACKAGE_LIST_DIR="/var/backups/package-lists"
-mkdir -p "$PACKAGE_LIST_DIR"
-
-if [ -f /etc/arch-release ]; then
-    echo "Detected Arch Linux"
-    pacman -Qqe > "$PACKAGE_LIST_DIR/all-packages.txt"
-    pacman -Qqen > "$PACKAGE_LIST_DIR/native-packages.txt"
-    pacman -Qqem > "$PACKAGE_LIST_DIR/foreign-packages.txt"
-elif [ -f /etc/debian_version ]; then
-    echo "Detected Debian/Ubuntu"
-    dpkg --get-selections > "$PACKAGE_LIST_DIR/all-packages.txt"
-elif [ -f /etc/fedora-release ]; then
-    echo "Detected Fedora"
-    dnf list > "$PACKAGE_LIST_DIR/all-packages.txt"
-else
-    echo "Unknown OS, skipping package list export."
-fi
-
 echo "Starting system backup at $(date)"
 systemd-notify --ready --status="System backup in progress..."
 
@@ -52,7 +32,8 @@ export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
 
 # Run the backup
 # Use --dry-run (before --verbose) if needed
-if restic -r "$RESTIC_REPOSITORY" --verbose --tag "system" backup --one-file-system / --exclude-file=/usr/local/bin/restic-system-exclude; then
+#if restic -r "$RESTIC_REPOSITORY" --verbose --tag "system" backup --one-file-system / --exclude-file=/usr/local/bin/restic-system-exclude; then
+if restic -r "$RESTIC_REPOSITORY" --dry-run --verbose --tag "system" backup /etc /boot; then
     notify-send -u low -i document-save "Restic Local System Backup" "Local System backup completed successfully!" 2>/dev/null || true
     echo "Local System backup completed successfully"
     exit 0

@@ -24,6 +24,7 @@ cache/**
 **/.env
 **/.envrc
 **/tmux/plugins/**
+.tmux/**
 .config/chromium/**
 .copilot/**
 .var/app/**

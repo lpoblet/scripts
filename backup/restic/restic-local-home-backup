@@ -19,7 +19,7 @@ if [ -z "$RESTIC_REPOSITORY" ]; then
     exit 1
 fi
 
- # Export package lists
+# Export package lists
 echo "Exporting package lists..."
 PACKAGE_LIST_DIR="/home/leo/backups/package-lists"
 mkdir -p "$PACKAGE_LIST_DIR"
@@ -51,7 +51,7 @@ export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
 
 # Do the backup - note "backup" comes before $HOME
 # Use --dry-run (before --verbose) if needed
-if restic -r "$RESTIC_REPOSITORY" --verbose --tag "home" backup /home/leo/ --exclude-file=/home/leo/.local/bin/restic-home-exclude; then
+if restic -r "$RESTIC_REPOSITORY" --dry-run --verbose --tag "home" backup /home/leo/ --exclude-file=/home/leo/.local/bin/restic-home-exclude; then
     notify-send -u low -i document-save "Restic Local Home Backup" "Local Home Backup completed successfully!" 2>/dev/null || true
     echo "Local Home Backup completed successfully"
     exit 0
