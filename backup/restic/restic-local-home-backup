@@ -19,6 +19,26 @@ if [ -z "$RESTIC_REPOSITORY" ]; then
     exit 1
 fi
 
+ # Export package lists
+echo "Exporting package lists..."
+PACKAGE_LIST_DIR="/home/leo/backups/package-lists"
+mkdir -p "$PACKAGE_LIST_DIR"
+
+if [ -f /etc/arch-release ]; then
+    echo "Detected Arch Linux"
+    pacman -Qqe > "$PACKAGE_LIST_DIR/all-packages.txt"
+    pacman -Qqen > "$PACKAGE_LIST_DIR/native-packages.txt"
+    pacman -Qqem > "$PACKAGE_LIST_DIR/foreign-packages.txt"
+elif [ -f /etc/debian_version ]; then
+    echo "Detected Debian/Ubuntu"
+    dpkg --get-selections > "$PACKAGE_LIST_DIR/all-packages.txt"
+elif [ -f /etc/fedora-release ]; then
+    echo "Detected Fedora"
+    dnf list > "$PACKAGE_LIST_DIR/all-packages.txt"
+else
+    echo "Unknown OS, skipping package list export."
+fi
+
 # Run the backup
 echo "Starting local home backup at $(date)"
 systemd-notify --ready --status="Local Home Backup in progress..."

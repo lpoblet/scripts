@@ -4,6 +4,7 @@
 .local/share/*
 .local/state/*
 backups/second-brain/*
+backups/zettelkasten/*
 Downloads/*
 .thumbnails/*
 .direnv/*
