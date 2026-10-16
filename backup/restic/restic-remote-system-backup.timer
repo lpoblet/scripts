@@ -1,0 +1,19 @@
+[Unit]
+Description=Remote Restic System Backup Timer
+Requires=restic-remote-system-backup.service
+
+[Timer]
+# Run daily at 2 AM
+OnCalendar=daily
+# Or specific time: OnCalendar=*-*-* 02:00:00
+# Every two hours:
+OnCalendar=*-*-* 00/2:00:00
+# Run 10 minutes after startup
+OnStartupSec=10min
+# Don't run if missed (when system was off)
+Persistent=true
+# Spread load to avoid thundering herd
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target

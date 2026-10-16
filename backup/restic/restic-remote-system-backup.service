@@ -1,0 +1,22 @@
+[Unit]
+Description=Restic Remote System Backup Service
+After=network.target
+Wants=network.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=/etc/restic/remote.repo.env
+ExecStart=/usr/local/bin/restic-remote-system-backup
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=12h
+PrivateTmp=true
+ProtectSystem=true
+#ReadWritePaths=/mnt/backups/fedora
+StandardOutput=file:/var/log/restic-remote-system-backup.stdout
+StandardError=file:/var/log/restic-remote-system-backup.stderr
+NotifyAccess=all
+
+[Install]
+WantedBy=default.target

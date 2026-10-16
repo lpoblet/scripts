@@ -1,0 +1,26 @@
+[Unit]
+Description=Remote Restic Home Backup Service
+After=network.target
+Wants=network.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/restic/remote.repo.env
+
+# Define fallback environment variables for Restic
+#Environment="HOME=/root"
+#Environment="RESTIC_CACHE_DIR=/var/cache/restic"
+
+ExecStart=/home/leo/.local/bin/restic-remote-home-backup
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=12h
+#PrivateTmp=true
+#ProtectSystem=true
+#ReadWritePaths=/mnt/backups/local/home
+StandardOutput=file:/home/leo/backups/restic-remote-home-backup.stdout
+StandardError=file:/home/leo/backups/restic-remote-home-backup.stderr
+NotifyAccess=all
+
+[Install]
+WantedBy=default.target

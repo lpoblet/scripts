@@ -19,15 +19,35 @@ if [ -z "$RESTIC_REPOSITORY" ]; then
     exit 1
 fi
 
+# Export package lists
+echo "Exporting package lists..."
+PACKAGE_LIST_DIR="/home/leo/backups/package-lists"
+mkdir -p "$PACKAGE_LIST_DIR"
+
+if [ -f /etc/arch-release ]; then
+    echo "Detected Arch Linux"
+    pacman -Qqe > "$PACKAGE_LIST_DIR/all-packages.txt"
+    pacman -Qqen > "$PACKAGE_LIST_DIR/native-packages.txt"
+    pacman -Qqem > "$PACKAGE_LIST_DIR/foreign-packages.txt"
+elif [ -f /etc/debian_version ]; then
+    echo "Detected Debian/Ubuntu"
+    dpkg --get-selections > "$PACKAGE_LIST_DIR/all-packages.txt"
+elif [ -f /etc/fedora-release ]; then
+    echo "Detected Fedora"
+    dnf list > "$PACKAGE_LIST_DIR/all-packages.txt"
+else
+    echo "Unknown OS, skipping package list export."
+fi
+
 # Check network connectivity to the server
-if ! ping -c 1 -W 2 192.168.100.154 >/dev/null 2>&1; then
+if ! ping -c 1 -W 2 x1c3 >/dev/null 2>&1; then
     echo "Server unreachable, skipping backup"
     exit 0
 fi
 
 # Run the backup
 echo "Starting backup at $(date)"
-systemd-notify --ready --status="Remote home backup in progress..."
+systemd-notify --ready --status="Remote Restic home backup in progress..."
 
 # Set DBUS for GUI notifications
 export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
@@ -39,13 +59,13 @@ export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
 
 # Do the backup - note "backup" comes before $HOME
 #    --dry-run \
-if restic -r "$RESTIC_REPOSITORY" --verbose --tag "home" backup /home/leo/ --exclude-file="$HOME/.local/bin/restic-home-exclude"; then
-    notify-send -u low -i document-save "Restic Home Backup" "Remote backup completed successfully!" 2>/dev/null || true
-    echo "Backup completed successfully"
+if restic -r "$RESTIC_REPOSITORY" --dry-run --verbose --tag "home" backup /home/leo/ --exclude-file="$HOME/.local/bin/restic-home-exclude"; then
+    notify-send -u low -i document-save "Remote Restic Home Backup" "Remote backup completed successfully!" 2>/dev/null || true
+    echo "Restic Remote Home Backup completed successfully"
     exit 0
 else
-    notify-send -u critical -i dialog-error "Restic Home Backup" "Remote backup failed! Check journal logs." 2>/dev/null || true
-    echo "Backup failed!"
+    notify-send -u critical -i dialog-error "Remote Restic Home Backup" "Remote backup failed! Check journal logs." 2>/dev/null || true
+    echo "Restic Remote Home Backup failed!"
     exit 1
 fi
 
@@ -63,9 +83,11 @@ echo "Checking repository integrity..."
 restic -r "$RESTIC_REPOSITORY" check
 
 # Delete environment variables
-unset RESTIC_PASSWORD
 unset RESTIC_REPOSITORY
 unset RESTIC_PASSWORD_FILE
+unset RESTIC_COMPRESSION
+unset RESTIC_HOST
+unset RESTIC_SFTP_COMMAND
 
 echo "Backup completed at $(date)"
-systemd-notify --ready --status="Remote Home Backup completed..."
+systemd-notify --ready --status="Remote Restic Home Backup completed..."
