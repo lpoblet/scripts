@@ -25,14 +25,9 @@ systemd-notify --ready --status="System backup in progress..."
 # Set DBUS for GUI notifications
 export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
 
-#echo "$RESTIC_REPOSITORY"
-#echo "$RESTIC_PASSWORD_FILE"
-# Optional: run this command to check the use of the password
-# restic -r "$RESTIC_REPOSITORY" snapshots
-
-# Run the backup
-# Use --dry-run (before --verbose) if needed
-#if restic -r "$RESTIC_REPOSITORY" --verbose --tag "system" backup --one-file-system / --exclude-file=/usr/local/bin/restic-system-exclude; then
+# Run the backup for system files only
+# Remove --dry-run once tested
+# Use: "backup --one-file-system / " for a wider system backup
 if restic -r "$RESTIC_REPOSITORY" --dry-run --verbose --tag "system" backup /etc /boot; then
     notify-send -u low -i document-save "Restic Local System Backup" "Local System backup completed successfully!" 2>/dev/null || true
     echo "Local System backup completed successfully"
@@ -45,16 +40,32 @@ fi
 
 # Maintain backups - Keep 7 daily, 4 weekly, and 12 monthly backups
 echo "Pruning old backups..."
-restic forget \
+if restic forget \
   --keep-daily 7 \
   --keep-weekly 4 \
   --keep-monthly 12 \
   --prune \
-  --tag "system"
+  --tag "system"; then
+    notify-send -u low -i document-save "Restic Local System Prunning" "Local System Prunning completed successfully!" 2>/dev/null || true
+    echo "Local System Prunning completed successfully"
+    exit 0
+else
+    notify-send -u critical -i dialog-error "Local Restic System Prunning" "Local System Prunning failed! Check journal logs." 2>/dev/null || true
+    echo "Local System Prunning failed!"
+    exit 1
+fi
 
 # Check repository integrity
 echo "Checking repository integrity..."
-restic -r "$RESTIC_REPOSITORY" check
+if restic -r "$RESTIC_REPOSITORY" check; then
+    notify-send -u low -i document-save "Restic Local System Check" "Local System Checked completed successfully!" 2>/dev/null || true
+    echo "Local System Check completed successfully"
+    exit 0
+else
+    notify-send -u critical -i dialog-error "Local Restic System Check" "Local System Check failed! Check journal logs." 2>/dev/null || true
+    echo "Local System Check failed!"
+    exit 1
+fi
 
 # Delete environment variables
 unset RESTIC_REPOSITORY

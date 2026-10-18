@@ -9,7 +9,7 @@
 if [ -f /etc/restic/local.home.repo.env ]; then
     source /etc/restic/local.home.repo.env
 else
-    echo "ERROR: Environment file /etc/restic/local.repo.env not found!"
+    echo "ERROR: Environment file /etc/restic/local.home.repo.env not found!"
     exit 1
 fi
 
@@ -46,12 +46,8 @@ systemd-notify --ready --status="Local Home Backup in progress..."
 # Set DBUS for GUI notifications
 export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
 
-# Optional: run this command to check the use of the password
-# restic -r "$RESTIC_REPOSITORY" snapshots
-
-# Do the backup - note "backup" comes before $HOME
-# Use --dry-run (before --verbose) if needed
-if restic -r "$RESTIC_REPOSITORY" --dry-run --verbose --tag "home" backup /home/leo/ --exclude-file=/home/leo/.local/bin/restic-home-exclude; then
+# Remove --dry-run once tested
+if restic -r "$RESTIC_REPOSITORY" --dry-run --verbose --tag "home" backup "$HOME" --exclude-file=$HOME/.local/bin/restic-home-exclude; then
     notify-send -u low -i document-save "Restic Local Home Backup" "Local Home Backup completed successfully!" 2>/dev/null || true
     echo "Local Home Backup completed successfully"
     exit 0
@@ -63,16 +59,33 @@ fi
 
 # Maintain backups - Keep 7 daily, 4 weekly, and 12 monthly backups
 echo "Pruning old backups..."
-restic -r "$RESTIC_REPOSITORY" forget \
+if restic -r "$RESTIC_REPOSITORY" forget \
   --keep-daily 7 \
   --keep-weekly 4 \
   --keep-monthly 12 \
   --prune \
-  --tag "home"
+  --tag "home"; then
+    notify-send -u low -i document-save "Restic Local Home Repo Prunning" "Prunning old Home backups done" 2>/dev/null || true
+    echo "Local Home Repo Prunning completed successfully"
+    exit 0
+else
+    notify-send -u critical -i dialog-error "Restic Local Home Prunning" "Prunning old Home backuos failed" 2>/dev/null || true
+    echo "Local Home Repo Prunning failed!"
+    exit 1
+fi
 
 # Check repository integrity
 echo "Checking repository integrity..."
-restic -r "$RESTIC_REPOSITORY" check
+if restic -r "$RESTIC_REPOSITORY" check; then
+    notify-send -u low -i document-save "Restic Local Home Repo Check" "Local Home Repo Checked successfully" 2>/dev/null || true
+    echo "Local Home Repo Check completed successfully"
+    exit 0
+else
+    notify-send -u critical -i dialog-error "Restic Local Home Check" "Local Home Repo Check unsuccessfull" 2>/dev/null || true
+    echo "Local Home Repo Check failed!"
+    exit 1
+fi
+
 
 # Delete environment variables
 unset RESTIC_REPOSITORY
