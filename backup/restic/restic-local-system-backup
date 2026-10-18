@@ -19,50 +19,43 @@ if [ -z "$RESTIC_REPOSITORY" ]; then
     exit 1
 fi
 
+echo "------------------------------------------------------------------------"
 echo "Starting system backup at $(date)"
-systemd-notify --ready --status="System backup in progress..."
-
-# Set DBUS for GUI notifications
-export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
 
 # Run the backup for system files only
 # Remove --dry-run once tested
 # Use: "backup --one-file-system / " for a wider system backup
 if restic -r "$RESTIC_REPOSITORY" --dry-run --verbose --tag "system" backup /etc /boot; then
-    notify-send -u low -i document-save "Restic Local System Backup" "Local System backup completed successfully!" 2>/dev/null || true
     echo "Local System backup completed successfully"
-    exit 0
+    #exit 0
 else
-    notify-send -u critical -i dialog-error "Local Restic System Backup" "Local System backup failed! Check journal logs." 2>/dev/null || true
     echo "Local System backup failed!"
     exit 1
 fi
 
 # Maintain backups - Keep 7 daily, 4 weekly, and 12 monthly backups
+echo "------------------------------------------------------------------------"
 echo "Pruning old backups..."
-if restic forget \
+if restic -r "$RESTIC_REPOSITORY" forget \
   --keep-daily 7 \
   --keep-weekly 4 \
   --keep-monthly 12 \
   --prune \
   --tag "system"; then
-    notify-send -u low -i document-save "Restic Local System Prunning" "Local System Prunning completed successfully!" 2>/dev/null || true
     echo "Local System Prunning completed successfully"
-    exit 0
+    #exit 0
 else
-    notify-send -u critical -i dialog-error "Local Restic System Prunning" "Local System Prunning failed! Check journal logs." 2>/dev/null || true
     echo "Local System Prunning failed!"
     exit 1
 fi
 
 # Check repository integrity
+echo "------------------------------------------------------------------------"
 echo "Checking repository integrity..."
 if restic -r "$RESTIC_REPOSITORY" check; then
-    notify-send -u low -i document-save "Restic Local System Check" "Local System Checked completed successfully!" 2>/dev/null || true
     echo "Local System Check completed successfully"
-    exit 0
+    #exit 0
 else
-    notify-send -u critical -i dialog-error "Local Restic System Check" "Local System Check failed! Check journal logs." 2>/dev/null || true
     echo "Local System Check failed!"
     exit 1
 fi
@@ -74,4 +67,4 @@ unset RESTIC_COMPRESSION
 unset RESTIC_HOST
 
 echo "Local System backup completed at $(date)"
-systemd-notify --ready --status="Local System backup completed..."
+echo "------------------------------------------------------------------------"

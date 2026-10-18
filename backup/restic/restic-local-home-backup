@@ -20,6 +20,7 @@ if [ -z "$RESTIC_REPOSITORY" ]; then
 fi
 
 # Export package lists
+echo "------------------------------------------------------------------------"
 echo "Exporting package lists..."
 PACKAGE_LIST_DIR="/home/leo/backups/package-lists"
 mkdir -p "$PACKAGE_LIST_DIR"
@@ -40,24 +41,20 @@ else
 fi
 
 # Run the backup
+echo "------------------------------------------------------------------------"
 echo "Starting local home backup at $(date)"
-systemd-notify --ready --status="Local Home Backup in progress..."
-
-# Set DBUS for GUI notifications
-export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
 
 # Remove --dry-run once tested
 if restic -r "$RESTIC_REPOSITORY" --dry-run --verbose --tag "home" backup "$HOME" --exclude-file=$HOME/.local/bin/restic-home-exclude; then
-    notify-send -u low -i document-save "Restic Local Home Backup" "Local Home Backup completed successfully!" 2>/dev/null || true
     echo "Local Home Backup completed successfully"
-    exit 0
+    #exit 0
 else
-    notify-send -u critical -i dialog-error "Restic Local Home Backup" "Local Home Backup failed! Check journal logs." 2>/dev/null || true
     echo "Local Home Backup failed!"
     exit 1
 fi
 
 # Maintain backups - Keep 7 daily, 4 weekly, and 12 monthly backups
+echo "------------------------------------------------------------------------"
 echo "Pruning old backups..."
 if restic -r "$RESTIC_REPOSITORY" forget \
   --keep-daily 7 \
@@ -65,27 +62,23 @@ if restic -r "$RESTIC_REPOSITORY" forget \
   --keep-monthly 12 \
   --prune \
   --tag "home"; then
-    notify-send -u low -i document-save "Restic Local Home Repo Prunning" "Prunning old Home backups done" 2>/dev/null || true
     echo "Local Home Repo Prunning completed successfully"
-    exit 0
+    #exit 0
 else
-    notify-send -u critical -i dialog-error "Restic Local Home Prunning" "Prunning old Home backuos failed" 2>/dev/null || true
     echo "Local Home Repo Prunning failed!"
     exit 1
 fi
 
 # Check repository integrity
+echo "------------------------------------------------------------------------"
 echo "Checking repository integrity..."
 if restic -r "$RESTIC_REPOSITORY" check; then
-    notify-send -u low -i document-save "Restic Local Home Repo Check" "Local Home Repo Checked successfully" 2>/dev/null || true
     echo "Local Home Repo Check completed successfully"
-    exit 0
+    #exit 0
 else
-    notify-send -u critical -i dialog-error "Restic Local Home Check" "Local Home Repo Check unsuccessfull" 2>/dev/null || true
     echo "Local Home Repo Check failed!"
     exit 1
 fi
-
 
 # Delete environment variables
 unset RESTIC_REPOSITORY
@@ -94,4 +87,4 @@ unset RESTIC_COMPRESSION
 unset RESTIC_HOST
 
 echo "Local Home Backup completed at $(date)"
-systemd-notify --ready --status="Local Home Backup completed..."
+echo "------------------------------------------------------------------------"
