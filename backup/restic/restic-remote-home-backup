@@ -6,10 +6,10 @@
 # export RESTIC_PASSWORD_FILE="/etc/restic/home.repo.key"
 
 # Load environment variables
-if [ -f /etc/restic/restic.remote.repo.env ]; then
-    source /etc/restic/restic.remote.repo.env
+if [ -f /etc/restic/remote.repo.env ]; then
+    source /etc/restic/remote.repo.env
 else
-    echo "ERROR: Environment file /etc/restic/restic.remote.repo.env not found!"
+    echo "ERROR: Environment file /etc/restic/remote.repo.env not found!"
     exit 1
 fi
 
@@ -20,6 +20,7 @@ if [ -z "$RESTIC_REPOSITORY" ]; then
 fi
 
 # Export package lists
+echo "------------------------------------------------------------------------"
 echo "Exporting package lists..."
 PACKAGE_LIST_DIR="/home/leo/backups/package-lists"
 mkdir -p "$PACKAGE_LIST_DIR"
@@ -40,36 +41,28 @@ else
 fi
 
 # Check network connectivity to the server
-if ! ping -c 1 -W 2 x1c3 >/dev/null 2>&1; then
-    echo "Server unreachable, skipping backup"
-    exit 0
+echo "------------------------------------------------------------------------"
+echo "Checking connection to the server..."
+if ! ssh -q -o BatchMode=yes -o ConnectTimeout=3 leo@x1c3 exit >/dev/null 2>&1; then
+    echo "Server unreachable via SSH, skipping backup"
+    exit 1
 fi
 
 # Run the backup
+echo "------------------------------------------------------------------------"
 echo "Starting backup at $(date)"
-systemd-notify --ready --status="Remote Restic home backup in progress..."
 
-# Set DBUS for GUI notifications
-export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
-
-#echo "$RESTIC_REPOSITORY"
-#echo "$RESTIC_PASSWORD_FILE"
-# Optional: run this command to check the use of the password
-# restic -r "$RESTIC_REPOSITORY" snapshots
-
-# Do the backup - note "backup" comes before $HOME
-#    --dry-run \
-if restic -r "$RESTIC_REPOSITORY" --dry-run --verbose --tag "home" backup /home/leo/ --exclude-file="$HOME/.local/bin/restic-home-exclude"; then
-    notify-send -u low -i document-save "Remote Restic Home Backup" "Remote backup completed successfully!" 2>/dev/null || true
+# Remove --dry-run once tested
+if restic -r "$RESTIC_REPOSITORY" --dry-run --verbose --tag "home" backup $HOME --exclude-file="$HOME/.local/bin/restic-home-exclude"; then
     echo "Restic Remote Home Backup completed successfully"
-    exit 0
+    #exit 0
 else
-    notify-send -u critical -i dialog-error "Remote Restic Home Backup" "Remote backup failed! Check journal logs." 2>/dev/null || true
     echo "Restic Remote Home Backup failed!"
     exit 1
 fi
 
 # Maintain backups - Keep 7 daily, 4 weekly, and 12 monthly backups
+echo "------------------------------------------------------------------------"
 echo "Pruning old backups..."
 restic -r "$RESTIC_REPOSITORY" forget \
   --keep-daily 7 \
@@ -79,6 +72,7 @@ restic -r "$RESTIC_REPOSITORY" forget \
   --tag "home"
 
 # Check repository integrity
+echo "------------------------------------------------------------------------"
 echo "Checking repository integrity..."
 restic -r "$RESTIC_REPOSITORY" check
 
@@ -89,5 +83,5 @@ unset RESTIC_COMPRESSION
 unset RESTIC_HOST
 unset RESTIC_SFTP_COMMAND
 
-echo "Backup completed at $(date)"
-systemd-notify --ready --status="Remote Restic Home Backup completed..."
+echo "------------------------------------------------------------------------"
+echo "Restic Remote Home Backup completed at $(date)"
