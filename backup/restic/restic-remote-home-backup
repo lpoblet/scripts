@@ -22,7 +22,7 @@ fi
 # Export package lists
 echo "------------------------------------------------------------------------"
 echo "Exporting package lists..."
-PACKAGE_LIST_DIR="/home/leo/backups/package-lists"
+PACKAGE_LIST_DIR="$HOME/backups/package-lists"
 mkdir -p "$PACKAGE_LIST_DIR"
 
 if [ -f /etc/arch-release ]; then
