@@ -40,14 +40,14 @@ Edit `sb-local-backup` if your vault or backup paths differ from defaults:
 
 ## Systemd Scheduling
 
-Symlink the user service and timer definitions from `sysdunits/` into `~/.config/systemd/user/`:
+Symlink the co-located user service and timer definitions into `~/.config/systemd/user/`:
 
 ```bash
 mkdir -p ~/.config/systemd/user
-ln -sf "$(pwd)/../../sysdunits/sb-local-backup.service" ~/.config/systemd/user/
-ln -sf "$(pwd)/../../sysdunits/sb-local-backup.timer" ~/.config/systemd/user/
-ln -sf "$(pwd)/../../sysdunits/sb-remote-backup.service" ~/.config/systemd/user/
-ln -sf "$(pwd)/../../sysdunits/sb-remote-backup.timer" ~/.config/systemd/user/
+ln -sf "$(pwd)/sb-local-backup.service" ~/.config/systemd/user/
+ln -sf "$(pwd)/sb-local-backup.timer" ~/.config/systemd/user/
+ln -sf "$(pwd)/sb-remote-backup.service" ~/.config/systemd/user/
+ln -sf "$(pwd)/sb-remote-backup.timer" ~/.config/systemd/user/
 ```
 
 Enable and start timers:

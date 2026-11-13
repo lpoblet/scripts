@@ -1,6 +1,6 @@
 # System Scripts & Automation Suite
 
-Modular system utilities, snapshot backup automation, and background synchronization routines extracted from `dotfiles` for clean separation of concerns and portability.
+Modular system utilities, snapshot backup automation, and background synchronization routines for personal workstation management.
 
 ---
 
@@ -9,33 +9,38 @@ Modular system utilities, snapshot backup automation, and background synchroniza
 ```text
 scripts/
 ├── obsidian-uri                        # Converts second-brain note paths to Obsidian URIs and copies to clipboard
-├── path                                # Formats and prints $PATH entries per line
 ├── pomodoro                            # Robust CLI Pomodoro countdown timer with notifications
+├── reloadwaybar                        # Restarts the Waybar status bar process
 ├── backup/
 │   ├── restic/                         # Restic deduplicated snapshot backup suite
 │   │   ├── README.md                   # Detailed setup and environment guide for Restic
 │   │   ├── repo.env.example            # Environment template for Restic repository credentials
 │   │   ├── restic-home-exclude         # Exclude rules for user home backups
 │   │   ├── restic-system-exclude       # Exclude rules for root system backups
-│   │   ├── system.exclude.example      # Example exclude list for system backup
 │   │   ├── restic-local-home-backup    # Local backup routine for $HOME
 │   │   ├── restic-remote-home-backup   # Remote backup routine for $HOME
 │   │   ├── restic-local-system-backup  # Local backup routine for root (/)
 │   │   ├── restic-remote-system-backup # Remote backup routine for root (/)
-│   │   └── rm-restic-logs              # Maintenance script to clean backup logs
-│   └── rsync/                          # Obsidian second-brain differential synchronization
-│       ├── README.md                   # Obsidian sync configuration and systemd notes
-│       ├── sb-local-backup             # Local vault mirror using rsync and flock
-│       └── sb-remote-backup            # Remote SSH vault sync with reachability check
-└── sysdunits/                          # Systemd service and timer units for scheduling
-    ├── restic-local-home-backup.service
-    ├── restic-local-home-backup.timer
-    ├── restic-local-system-backup.service
-    ├── restic-local-system-backup.timer
-    ├── sb-local-backup.service
-    ├── sb-local-backup.timer
-    ├── sb-remote-backup.service
-    └── sb-remote-backup.timer
+│   │   ├── restic-local-home-backup.service
+│   │   ├── restic-local-home-backup.timer
+│   │   ├── restic-local-system-backup.service
+│   │   ├── restic-local-system-backup.timer
+│   │   ├── restic-remote-home-backup.service
+│   │   ├── restic-remote-home-backup.timer
+│   │   ├── restic-remote-system-backup.service
+│   │   └── restic-remote-system-backup.timer
+│   └── rsync/                          # Knowledge base differential synchronization
+│       ├── README.md                   # Sync configuration and systemd notes
+│       ├── sb-local-backup             # Local second-brain vault mirror using rsync and flock
+│       ├── sb-remote-backup            # Remote SSH second-brain vault sync with reachability check
+│       ├── zk-local-backup             # Local Zettelkasten vault mirror
+│       ├── zk-remote-backup            # Remote SSH Zettelkasten vault sync
+│       ├── sb-local-backup.service
+│       ├── sb-local-backup.timer
+│       ├── sb-remote-backup.service
+│       ├── sb-remote-backup.timer
+│       ├── zk-local-backup.service
+│       └── zk-local-backup.timer
 ```
 
 ---
@@ -91,23 +96,6 @@ Converts a note file path within an Obsidian vault (default: `$HOME/Documents/se
 
 ---
 
-### `path`
-Prints each directory in the `$PATH` environment variable on a separate line for rapid inspection and debugging.
-
-- **Usage**:
-  ```bash
-  path
-  ```
-- **Example Output**:
-  ```text
-  /home/user/.local/bin
-  /usr/local/bin
-  /usr/bin
-  /bin
-  ```
-
----
-
 ### `pomodoro`
 A defensive, POSIX-compliant CLI Pomodoro timer with atomic lockfile handling, in-terminal countdown, desktop notifications, and terminal bell alerts.
 
@@ -132,6 +120,16 @@ A defensive, POSIX-compliant CLI Pomodoro timer with atomic lockfile handling, i
 
   # Preview dry-run
   pomodoro --dry-run 15
+  ```
+
+---
+
+### `reloadwaybar`
+Restarts the Waybar status bar process. Useful after configuration changes to apply them immediately without logging out.
+
+- **Usage**:
+  ```bash
+  reloadwaybar
   ```
 
 ---
@@ -165,7 +163,6 @@ Restic scripts read repository settings and credentials from `/etc/restic/*.repo
 - **`restic-remote-home-backup`**: Backs up user `$HOME` to a remote server over SFTP/REST with reachability checks.
 - **`restic-local-system-backup`**: Backs up the root filesystem (`/`) locally and exports installed package lists (`/var/backups/package-lists`).
 - **`restic-remote-system-backup`**: Backs up root filesystem (`/`) to remote target.
-- **`rm-restic-logs`**: Purges backup stdout/stderr logs from `~/backups/` and `/var/log/`.
 
 **Snapshot Retention Policy**:
 All backup routines enforce:
@@ -176,24 +173,33 @@ All backup routines enforce:
 
 ---
 
-## Second-Brain Rsync Sync Suite (`backup/rsync/`)
+## Knowledge Base Rsync Sync Suite (`backup/rsync/`)
 
-Differential synchronization scripts tailored for Markdown/Obsidian knowledge bases.
+Differential synchronization scripts tailored for Markdown/Obsidian knowledge bases, including both Second-Brain and Zettelkasten vaults.
 
 ### `sb-local-backup`
 - Mirrors `$HOME/Documents/second-brain/` to `$HOME/backups/second-brain/` using `rsync -avz --delete`.
 - Uses atomic locking via `${XDG_RUNTIME_DIR:-/tmp}/obsidian_backup.lock` to prevent overlapping runs.
 
 ### `sb-remote-backup`
-- Syncs the local vault to a remote machine over SSH (`rsync -avz --delete -e ssh`).
+- Syncs the local Second-Brain vault to a remote machine over SSH (`rsync -avz --delete -e ssh`).
 - Performs a non-interactive, low-timeout SSH reachability probe (`BatchMode=yes`, `ConnectTimeout=3`) before starting sync.
+- Requires SSH key-based authentication configured with the remote host.
+
+### `zk-local-backup`
+- Mirrors `$HOME/Documents/zettelkasten/` to `$HOME/backups/zettelkasten/` using `rsync -avz --delete`.
+- Uses atomic locking to prevent overlapping runs.
+
+### `zk-remote-backup`
+- Syncs the local Zettelkasten vault to a remote machine over SSH.
+- Performs SSH reachability checks before starting sync.
 - Requires SSH key-based authentication configured with the remote host.
 
 ---
 
-## Systemd Automation Units (`sysdunits/`)
+## Systemd Automation
 
-Systemd service and timer pairs for scheduled background execution.
+Each backup script ships with co-located `.service` and `.timer` unit files for scheduled background execution.
 
 ### User Units (Home Backups & Vault Sync)
 User timers execute in the context of the logged-in user without requiring root privileges.
@@ -201,12 +207,16 @@ User timers execute in the context of the logged-in user without requiring root 
 1. Symlink or copy units to `~/.config/systemd/user/`:
    ```bash
    mkdir -p ~/.config/systemd/user
-   ln -sf "$(pwd)/sysdunits/restic-local-home-backup.service" ~/.config/systemd/user/
-   ln -sf "$(pwd)/sysdunits/restic-local-home-backup.timer" ~/.config/systemd/user/
-   ln -sf "$(pwd)/sysdunits/sb-local-backup.service" ~/.config/systemd/user/
-   ln -sf "$(pwd)/sysdunits/sb-local-backup.timer" ~/.config/systemd/user/
-   ln -sf "$(pwd)/sysdunits/sb-remote-backup.service" ~/.config/systemd/user/
-   ln -sf "$(pwd)/sysdunits/sb-remote-backup.timer" ~/.config/systemd/user/
+
+   # Restic home backup
+   ln -sf "$(pwd)/backup/restic/restic-local-home-backup.service" ~/.config/systemd/user/
+   ln -sf "$(pwd)/backup/restic/restic-local-home-backup.timer" ~/.config/systemd/user/
+
+   # Rsync vault sync
+   ln -sf "$(pwd)/backup/rsync/sb-local-backup.service" ~/.config/systemd/user/
+   ln -sf "$(pwd)/backup/rsync/sb-local-backup.timer" ~/.config/systemd/user/
+   ln -sf "$(pwd)/backup/rsync/sb-remote-backup.service" ~/.config/systemd/user/
+   ln -sf "$(pwd)/backup/rsync/sb-remote-backup.timer" ~/.config/systemd/user/
    ```
 
 2. Reload and enable user timers:
@@ -222,8 +232,8 @@ Root system backups require elevated permissions to read all system files.
 
 1. Copy system units to `/etc/systemd/system/`:
    ```bash
-   sudo cp sysdunits/restic-local-system-backup.service /etc/systemd/system/
-   sudo cp sysdunits/restic-local-system-backup.timer /etc/systemd/system/
+   sudo cp backup/restic/restic-local-system-backup.service /etc/systemd/system/
+   sudo cp backup/restic/restic-local-system-backup.timer /etc/systemd/system/
    ```
 
 2. Reload and enable system timers:

@@ -17,8 +17,6 @@ id_rsa*
 # Repo-specific secrets / machine-local overrides (kept out of git too)
 *.repo.env
 *.repo.key
-.gitconfig.local
-alacritty-local.toml
 
 # --- Python artifacts (for any future Python scripts) ---
 *.pyc

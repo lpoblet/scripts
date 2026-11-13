@@ -1,47 +1,49 @@
 # AI Agent Guidelines & Repository Architecture
 
-This document is the **single source of truth** for all AI coding assistants (Claude, Gemini, Copilot, Junie, etc.) operating in this `dotfiles` repository.
+This document is the **single source of truth** for all AI coding assistants (Claude, Gemini, Copilot, Junie, etc.) operating in this standalone scripts repository.
 
 ---
 
 ## 1. Context & Repository Architecture
 
-### Directory Structure & GNU Stow
-The repository uses [GNU Stow](https://www.gnu.org/software/stow/) to manage symlinks from package directories directly into `$HOME`:
+### Directory Structure
+This is a standalone scripts repository containing backup automation, CLI utilities, and systemd service/timer units co-located with their scripts:
 ```text
-dotfiles/
+scripts/
 ├── .aiignore                       # AI context exclusion rules
 ├── .gitignore                      # Git ignore rules
 ├── AGENTS.md                       # Canonical agent instructions
-├── DEPENDENCIES.md                 # System package mapping across distros
-├── install.sh                      # Idempotent stow installation script
-├── alacritty/                      # Alacritty terminal configs (~/.config/alacritty/)
-├── arch/                           # Arch-specific bash environment (~/.bashrc, etc.)
-├── debian/                         # Debian-specific bash environment
-├── fedora/                         # Fedora-specific bash environment
-├── bashAliases/                    # Common shell aliases (~/.bash_aliases)
-├── git/                            # Git configuration (~/.gitconfig, ~/.gitignore_global)
-├── hypr/                           # Hyprland ecosystem (~/.config/hypr/)
-├── sway/                           # Sway WM config (~/.config/sway/)
-├── waybar/                         # Waybar status bar (~/.config/waybar/)
-├── swaync/                         # SwayNC notification center (~/.config/swaync/)
-├── nvim/                           # Neovim / LazyVim (~/.config/nvim/)
-├── vim/                            # Classic Vim configuration (~/.vimrc)
-├── tmux/                           # tmux multiplexer (~/.config/tmux/)
-├── btop/                           # btop system monitor (~/.config/btop/)
-├── fastfetch/                      # fastfetch info tool (~/.config/fastfetch/)
-├── lazygit/                        # lazygit TUI config (~/.config/lazygit/)
-├── starship/                       # Starship prompt (~/.config/starship.toml)
-├── scripts/                        # User helper & backup scripts (~/.local/bin or ~/scripts)
-└── systemd/                        # User systemd service & timer units
+├── CLAUDE.md                       # Claude agent pointer to AGENTS.md
+├── GEMINI.md                       # Gemini agent pointer to AGENTS.md
+├── LICENSE                         # GPL-3.0 license
+├── README.md                       # Repository documentation
+├── obsidian-uri                    # Obsidian URI generator script
+├── pomodoro                        # Pomodoro timer script
+├── reloadwaybar                    # Waybar restart script
+├── backup/
+│   ├── restic/                     # Restic snapshot backup suite
+│   │   ├── restic-local-home-backup
+│   │   ├── restic-remote-home-backup
+│   │   ├── restic-local-system-backup
+│   │   ├── restic-remote-system-backup
+│   │   ├── restic-home-exclude
+│   │   ├── restic-system-exclude
+│   │   ├── repo.env.example
+│   │   ├── *.service               # Co-located systemd service units
+│   │   └── *.timer                 # Co-located systemd timer units
+│   └── rsync/                      # Knowledge base rsync sync suite
+│       ├── sb-local-backup
+│       ├── sb-remote-backup
+│       ├── zk-local-backup
+│       ├── zk-remote-backup
+│       ├── *.service               # Co-located systemd service units
+│       └── *.timer                 # Co-located systemd timer units
 ```
 
-### GNU Stow Conventions
-- Each top-level directory corresponds to a stow package.
-- Inside each stow package, file paths mirror their target location relative to `$HOME`.
-  - Example: `nvim/.config/nvim/init.lua` -> symlinked to `~/.config/nvim/init.lua`.
-  - Example: `git/.gitconfig` -> symlinked to `~/.gitconfig`.
-- Never place absolute symlinks or hardcoded user paths inside tracked files when relative or environment-based references (`$HOME`, `~`) can be used.
+### Key Conventions
+- Scripts are installed to `~/.local/bin/` (user scripts) or `/usr/local/bin/` (root scripts).
+- Systemd `.service` and `.timer` unit files are co-located with their corresponding scripts in `backup/restic/` and `backup/rsync/`.
+- Never hardcode user home directory paths (e.g., `/home/leo`) — always use `$HOME` or `~`.
 
 ---
 
@@ -49,11 +51,10 @@ dotfiles/
 
 ### Strict Rules for Secrets
 - **Zero Secrets in Git**: Never hardcode private keys, API tokens, passwords, or machine-specific tokens in tracked files.
-- **Local Overrides Pattern**:
-  - **Git**: Global `git/.gitconfig` includes `~/.gitconfig.local` for private/work credentials. Use `git/.gitconfig.local.example` as a template.
-  - **Alacritty**: `alacritty.toml` imports `~/.config/alacritty/alacritty-local.toml` for machine-specific display/font overrides. Use `alacritty-local.toml.example` as a template.
-  - **Backups / Restic**: Scripts load credentials from `/etc/restic/*.repo.env` or local `.env` files. Templates reside in `scripts/scripts/backup/restic/repo.env.example`.
-- **AI Ignore Policy**: Ensure `.aiignore` ignores all `.env`, `.key`, `.pem`, `.secrets`, and local override files.
+- **Backup Credentials Pattern**:
+  - **Restic**: Scripts load credentials from `/etc/restic/*.repo.env` and `/etc/restic/*.repo.key`. Use `backup/restic/repo.env.example` as a template. These files must have `chmod 600` permissions.
+  - **SSH Keys**: Remote backup scripts (`sb-remote-backup`, `zk-remote-backup`) require SSH key-based authentication. Never commit SSH private keys.
+- **AI Ignore Policy**: Ensure `.aiignore` ignores all `.env`, `.key`, `.pem`, `.secrets`, and `*.repo.env` files.
 
 ---
 
@@ -62,7 +63,7 @@ dotfiles/
 ### Scripting Standards
 - **Idempotence**: All setup and automation scripts must be safe to run multiple times without duplicating lines, clobbering configs, or causing unexpected state changes.
 - **Dry-run Support**: Scripts performing operations against `$HOME` or system paths should support a `--dry-run` (`-n`) flag where applicable.
-- **Modularity**: When editing configs, modify only the relevant stow package. Avoid coupling independent components.
+- **Modularity**: When editing scripts, modify only the relevant component. Avoid coupling independent backup or utility scripts.
 - **Defensive Shell Scripting**:
   - Always use `set -euo pipefail` in Bash scripts where appropriate.
   - Quote all variables (`"$VAR"`).
@@ -206,22 +207,8 @@ fi
 
 ---
 
-## 5. Multi-Distribution Compatibility
-
-When adding packages, systemd units, or shell helpers, reference `DEPENDENCIES.md` to ensure cross-distribution support:
-- **Arch Linux**: `pacman -S <package>`
-- **Debian / Ubuntu**: `apt-get install <package>`
-- **Fedora**: `dnf install <package>`
-
-Keep package naming differences documented in `DEPENDENCIES.md`.
-
----
-
-## 6. Automated Verification & Linting
+## 5. Automated Verification & Linting
 
 Before completing code or configuration changes, validate using automated checks:
-- **Shell Scripts**: Validate with `bash -n` and `shellcheck` (run `scripts/validate.sh`).
-- **Python Scripts**: Validate with `python3 -m py_compile` and `ruff`/`flake8` (run `scripts/validate.sh`).
-- **Lua / Neovim**: Validate with `stylua` or Lua syntax linters.
-- **JSON / TOML / YAML**: Verify syntax valid with standard parsers (`python3 -m json.tool`, `tomllib`).
-- **Validation Script**: Execute `./scripts/validate.sh` to run the comprehensive test suite across all repository files.
+- **Shell Scripts**: Validate syntax with `bash -n` and lint with `shellcheck`.
+- **Systemd Units**: Verify syntax with `systemd-analyze verify`.
