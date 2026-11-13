@@ -8,6 +8,7 @@ Modular system utilities, snapshot backup automation, and background synchroniza
 
 ```text
 scripts/
+├── junie-plan-sync                     # One-way SSH sync of the current folder's .junie/plans to a remote host (never deletes)
 ├── obsidian-uri                        # Converts second-brain note paths to Obsidian URIs and copies to clipboard
 ├── pomodoro                            # Robust CLI Pomodoro countdown timer with notifications
 ├── reloadwaybar                        # Restarts the Waybar status bar process
@@ -92,6 +93,32 @@ Converts a note file path within an Obsidian vault (default: `$HOME/Documents/se
 
   # Preview URI without copying to clipboard
   obsidian-uri --dry-run -m "Research/Quantum Physics.md"
+  ```
+
+---
+
+### `junie-plan-sync`
+Copies the current directory's Junie plan files (`.junie/plans/`) to a receiving host over SSH. Git is not required. The remote folder is always the current directory's path relative to `$HOME` (for example `scripts`, or `source/lab/proj`), and the plans are copied to `<remote folder>/.junie/plans/`.
+
+The transfer is one-way and never deletes anything on the receiving host: `rsync` runs without `--delete`, and `--update` skips files that are newer on the receiver. Before anything is written, the script checks SSH reachability (`BatchMode=yes`, `ConnectTimeout=3`), lists the plan files and the full target path, and asks for confirmation. Only `y` or `yes` proceeds.
+
+- **Usage**:
+  ```bash
+  junie-plan-sync [OPTIONS] [HOST]
+  ```
+- **Arguments**:
+  - `[HOST]`: Receiving hostname (optional; prompted for when omitted).
+- **Options**:
+  - `-n, --dry-run`: Show the confirmation screen and run `rsync --dry-run`; creates nothing on the remote host.
+  - `-h, --help`: Display usage and options.
+- **Requirements**: The script prompts on stdin, so omitting `[HOST]` requires a terminal. The current directory must live under `$HOME`, and `.junie/plans/` must contain at least one file. Requires `rsync` and `ssh`, plus passwordless SSH key authentication to the receiving host.
+- **Examples**:
+  ```bash
+  # Prompt for the host, then confirm
+  junie-plan-sync
+
+  # Sync to a known host, preview only
+  junie-plan-sync --dry-run x1c3
   ```
 
 ---

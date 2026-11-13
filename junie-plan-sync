@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_NAME="$(basename "$0")"
+
+usage() {
+    cat <<EOF
+Usage: ${SCRIPT_NAME} [OPTIONS] [HOST]
+
+Copies the current directory's Junie plans (.junie/plans/) to a receiving host over SSH.
+The remote path mirrors the directory path relative to \$HOME. The copy is one-way and never deletes files on the receiving host.
+
+Arguments:
+  HOST                    Receiving hostname (optional; prompted for when omitted)
+
+Options:
+  -n, --dry-run           Show the plan and rsync dry-run; change nothing
+  -h, --help              Show this help message and exit
+
+Examples:
+  ${SCRIPT_NAME} x1c3
+  ${SCRIPT_NAME} --dry-run x1c3
+  ${SCRIPT_NAME} --dry-run
+EOF
+}
+
+DRY_RUN=false
+HOST=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -n|--dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        -*)
+            echo "Error: Unknown option '$1'" >&2
+            usage >&2
+            exit 2
+            ;;
+        *)
+            if [[ -z "$HOST" ]]; then
+                HOST="$1"
+            else
+                echo "Error: Unexpected argument '$1'" >&2
+                usage >&2
+                exit 2
+            fi
+            shift
+            ;;
+    esac
+done
+
+# Prompts need a terminal; without a host argument there is nothing to act on
+if [[ -z "$HOST" && ! -t 0 ]]; then
+    usage >&2
+    exit 2
+fi
+
+for dep in rsync ssh; do
+    if ! command -v "$dep" >/dev/null 2>&1; then
+        echo "Error: '$dep' is required but not installed." >&2
+        exit 1
+    fi
+done
+
+LOCAL_DIR="$PWD"
+
+case "$LOCAL_DIR" in
+    "$HOME"/*)
+        REL_PATH="${LOCAL_DIR#"$HOME"/}"
+        ;;
+    *)
+        echo "Error: Directory '$LOCAL_DIR' is not under \$HOME ($HOME)." >&2
+        echo "The remote path mirrors the directory path relative to \$HOME." >&2
+        exit 1
+        ;;
+esac
+
+PLANS_SRC="$LOCAL_DIR/.junie/plans"
+
+if [[ ! -d "$PLANS_SRC" ]]; then
+    echo "Error: No plans directory at '$PLANS_SRC'." >&2
+    exit 1
+fi
+
+PLAN_FILES=()
+while IFS= read -r -d '' plan_file; do
+    PLAN_FILES+=("$plan_file")
+done < <(find "$PLANS_SRC" -type f -print0 | sort -z)
+
+if [[ ${#PLAN_FILES[@]} -eq 0 ]]; then
+    echo "Error: No plan files found in '$PLANS_SRC'." >&2
+    exit 1
+fi
+
+while [[ -z "$HOST" ]]; do
+    read -r -p "Receiving host: " HOST || exit 1
+    if [[ -z "$HOST" ]]; then
+        echo "Error: Hostname must not be empty." >&2
+    fi
+done
+
+if [[ "$HOST" == -* ]]; then
+    echo "Error: Invalid hostname '$HOST'." >&2
+    exit 1
+fi
+
+REMOTE_DIR="$REL_PATH"
+
+if ! ssh -q -o BatchMode=yes -o ConnectTimeout=3 "$HOST" exit; then
+    echo "Error: Host '$HOST' is not reachable over SSH." >&2
+    exit 1
+fi
+
+echo "Plan files to copy from $PLANS_SRC:"
+for plan_file in "${PLAN_FILES[@]}"; do
+    echo "  ${plan_file#"$PLANS_SRC"/}"
+done
+echo "Target: $HOST:$REMOTE_DIR/.junie/plans/"
+
+if [[ "$DRY_RUN" == true ]]; then
+    echo "[DRY-RUN] No changes will be made."
+fi
+
+read -r -p "Proceed with copy? [y/N] " ANSWER || ANSWER=""
+case "$ANSWER" in
+    y|yes)
+        DEST="$REMOTE_DIR/.junie/plans"
+        printf -v QUOTED_DEST '%q' "$DEST"
+
+        RSYNC_EXTRA=()
+        if [[ "$DRY_RUN" == true ]]; then
+            echo "[DRY-RUN] Skipping remote directory creation."
+            RSYNC_EXTRA=(--dry-run)
+        else
+            # shellcheck disable=SC2029 # DEST is pre-quoted for the remote shell on purpose
+            if ! ssh "$HOST" "mkdir -p -- $QUOTED_DEST"; then
+                echo "Error: Could not create '$DEST' on '$HOST'." >&2
+                exit 1
+            fi
+        fi
+
+        if ! rsync -avz --update "${RSYNC_EXTRA[@]}" -e ssh "$PLANS_SRC/" "$HOST:$QUOTED_DEST/"; then
+            echo "Error: rsync to '$HOST:$DEST/' failed." >&2
+            exit 1
+        fi
+
+        if [[ "$DRY_RUN" == true ]]; then
+            echo "[DRY-RUN] Complete. Nothing was changed on '$HOST'."
+        else
+            echo "Copied ${#PLAN_FILES[@]} plan file(s) to $HOST:$DEST/. No remote files were deleted."
+        fi
+        exit 0
+        ;;
+    *)
+        echo "Cancelled. No changes made."
+        exit 0
+        ;;
+esac
