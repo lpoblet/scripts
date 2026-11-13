@@ -8,8 +8,8 @@ sleep 0.2
 
 # Launch waybar detached from the terminal session using nohup
 nohup waybar \
-    -c "$HOME/.config/waybar/config-x1c3.jsonc" \
-    -s "$HOME/.config/waybar/style-x1c3.css" \
+    -c "$HOME/.config/waybar/config-$(hostname).jsonc" \
+    -s "$HOME/.config/waybar/style-$(hostname).css" \
     > /dev/null 2>&1 &
 
 # Detach the background job from the shell completely
