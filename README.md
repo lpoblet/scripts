@@ -12,6 +12,13 @@ scripts/
 ├── obsidian-uri                        # Converts second-brain note paths to Obsidian URIs and copies to clipboard
 ├── pomodoro                            # Robust CLI Pomodoro countdown timer with notifications
 ├── reloadwaybar                        # Restarts the Waybar status bar process
+├── focus-todo/                         # Focus To-Do extension export to PostgreSQL (see focus-todo/README.md)
+│   ├── focus-todo-export               # Reads the extension's IndexedDB into JSON (read-only copy of the profile)
+│   ├── focus-todo-sqlgen               # Generates re-runnable data.sql from the exported JSON
+│   ├── schema.sql                      # Idempotent Postgres DDL
+│   ├── docker-compose.yml              # Optional standalone postgres:16 container
+│   ├── SCHEMA.md                       # Data model, relations, integrity results
+│   └── README.md                       # End-to-end usage
 ├── backup/
 │   ├── restic/                         # Restic deduplicated snapshot backup suite
 │   │   ├── README.md                   # Detailed setup and environment guide for Restic

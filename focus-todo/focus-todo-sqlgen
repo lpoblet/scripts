@@ -13,13 +13,15 @@ const SCRIPT_NAME = path.basename(process.argv[1]);
 // Column definitions per table, in dependency order.
 // kind: text | int | bool | ts (epoch milliseconds, 0 -> NULL)
 // ref:  table whose ids must contain the value; dangling values become NULL.
+// fallback: value used when the field is missing (NOT NULL columns); missing
+//       bools always become FALSE.
 const TABLES = [
     {
         table: 'projects',
         file: 'projects.json',
         columns: [
             { column: 'id', field: 'id', kind: 'text' },
-            { column: 'name', field: 'name', kind: 'text' },
+            { column: 'name', field: 'name', kind: 'text', fallback: '' },
             { column: 'obj_type', field: 'objType', kind: 'text' },
             { column: 'parent_id', field: 'parentId', kind: 'text', ref: 'projects' },
             { column: 'color', field: 'color', kind: 'text' },
@@ -40,7 +42,7 @@ const TABLES = [
         columns: [
             { column: 'id', field: 'id', kind: 'text' },
             { column: 'project_id', field: 'projectId', kind: 'text', ref: 'projects' },
-            { column: 'name', field: 'name', kind: 'text' },
+            { column: 'name', field: 'name', kind: 'text', fallback: '' },
             { column: 'obj_type', field: 'objType', kind: 'text' },
             { column: 'remark', field: 'remark', kind: 'text' },
             { column: 'tags', field: 'tags', kind: 'text' },
@@ -74,7 +76,7 @@ const TABLES = [
         columns: [
             { column: 'id', field: 'id', kind: 'text' },
             { column: 'task_id', field: 'taskId', kind: 'text', ref: 'tasks' },
-            { column: 'name', field: 'name', kind: 'text' },
+            { column: 'name', field: 'name', kind: 'text', fallback: '' },
             { column: 'obj_type', field: 'objType', kind: 'text' },
             { column: 'is_finished', field: 'isFinished', kind: 'bool' },
             { column: 'estimated_pomo_num', field: 'estimatedPomoNum', kind: 'int' },
@@ -190,7 +192,12 @@ function quoteText(value) {
 
 function renderValue(spec, record) {
     const raw = record[spec.field];
-    if (raw === undefined || raw === null) return 'NULL';
+    if (raw === undefined || raw === null) {
+        // Missing values fall back to the schema default for NOT NULL columns.
+        if (spec.kind === 'bool') return 'FALSE';
+        if (spec.fallback !== undefined) return quoteText(spec.fallback);
+        return 'NULL';
+    }
 
     switch (spec.kind) {
         case 'bool':
