@@ -1,0 +1,527 @@
+#!/usr/bin/env node
+'use strict';
+
+// Exports the Focus To-Do Chromium extension's IndexedDB data to JSON.
+// The live profile is never modified: the LevelDB directory is copied to a
+// temporary directory first and only the copy is read.
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const v8 = require('v8');
+
+const SCRIPT_NAME = path.basename(process.argv[1]);
+const EXTENSION_ID = 'ngceodoilcgpmkijopinlkmohnfifjfb';
+const LEVELDB_DIR_NAME = `chrome-extension_${EXTENSION_ID}_0.indexeddb.leveldb`;
+
+// IndexedDB object store id -> output file name.
+const STORES = {
+    1: { store: 'Project', file: 'projects.json' },
+    2: { store: 'Task', file: 'tasks.json' },
+    3: { store: 'Subtask', file: 'subtasks.json' },
+    4: { store: 'Pomodoro', file: 'pomodoro_sessions.json' },
+};
+
+const LOG_BLOCK_SIZE = 32768;
+const LOG_HEADER_SIZE = 7;
+
+function usage() {
+    process.stdout.write(`Usage: ${SCRIPT_NAME} [OPTIONS]
+
+Exports Focus To-Do (Chromium extension) data from IndexedDB to JSON files.
+The browser profile is read from a temporary copy and is never modified.
+
+Options:
+  -p, --profile <path>    Chromium profile directory, IndexedDB directory, or the
+                          "...indexeddb.leveldb" directory itself
+                          (default: auto-detected, Flatpak Chromium first)
+  -o, --out <dir>         Output directory (default: <script dir>/out)
+  -n, --dry-run           Show what would be read and written; write nothing
+  -v, --verbose           Print per-store detail while decoding
+  -h, --help              Show this help message and exit
+
+Output files:
+  projects.json, tasks.json, subtasks.json, pomodoro_sessions.json, summary.json
+
+Examples:
+  ${SCRIPT_NAME}
+  ${SCRIPT_NAME} --dry-run
+  ${SCRIPT_NAME} --profile ~/.config/chromium/Default --out ~/focus-todo-export
+`);
+}
+
+function die(message, code) {
+    process.stderr.write(`Error: ${message}\n`);
+    process.exit(code === undefined ? 1 : code);
+}
+
+function usageError(message) {
+    process.stderr.write(`Error: ${message}\n`);
+    const out = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk) => process.stderr.write(chunk);
+    usage();
+    process.stdout.write = out;
+    process.exit(2);
+}
+
+function parseArgs(argv) {
+    const opts = { profile: '', out: '', dryRun: false, verbose: false };
+
+    for (let i = 0; i < argv.length; i++) {
+        const arg = argv[i];
+        switch (arg) {
+            case '-h':
+            case '--help':
+                usage();
+                process.exit(0);
+                break;
+            case '-n':
+            case '--dry-run':
+                opts.dryRun = true;
+                break;
+            case '-v':
+            case '--verbose':
+                opts.verbose = true;
+                break;
+            case '-p':
+            case '--profile':
+                if (++i >= argv.length) usageError(`Option '${arg}' requires a value`);
+                opts.profile = argv[i];
+                break;
+            case '-o':
+            case '--out':
+                if (++i >= argv.length) usageError(`Option '${arg}' requires a value`);
+                opts.out = argv[i];
+                break;
+            default:
+                if (arg.startsWith('-')) usageError(`Unknown option '${arg}'`);
+                usageError(`Unexpected argument '${arg}'`);
+        }
+    }
+
+    return opts;
+}
+
+function expandHome(p) {
+    if (p === '~') return os.homedir();
+    if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
+    return p;
+}
+
+function isDir(p) {
+    try {
+        return fs.statSync(p).isDirectory();
+    } catch {
+        return false;
+    }
+}
+
+// Accepts the LevelDB directory, an IndexedDB directory, or a profile directory.
+function resolveLevelDbDir(candidate) {
+    const base = path.resolve(expandHome(candidate));
+    const tries = [
+        base,
+        path.join(base, LEVELDB_DIR_NAME),
+        path.join(base, 'IndexedDB', LEVELDB_DIR_NAME),
+        path.join(base, 'Default', 'IndexedDB', LEVELDB_DIR_NAME),
+    ];
+    return tries.find((p) => isDir(p) && fs.existsSync(path.join(p, 'CURRENT'))) || '';
+}
+
+// Flatpak Chromium first, as described in the plan, then the native profiles.
+function defaultProfileRoots() {
+    const home = os.homedir();
+    return [
+        path.join(home, '.var/app/org.chromium.Chromium/config/chromium/Default'),
+        path.join(home, '.var/app/io.github.ungoogled_software.ungoogled_chromium/config/chromium/Default'),
+        path.join(home, '.var/app/com.google.Chrome/config/google-chrome/Default'),
+        path.join(home, '.config/chromium/Default'),
+        path.join(home, '.config/google-chrome/Default'),
+    ];
+}
+
+function autoDetectLevelDbDir() {
+    for (const root of defaultProfileRoots()) {
+        const found = resolveLevelDbDir(root);
+        if (found) return found;
+    }
+    return '';
+}
+
+function copyLevelDb(sourceDir, destDir) {
+    const copied = [];
+    for (const entry of fs.readdirSync(sourceDir).sort()) {
+        if (entry === 'LOCK') continue;
+        const from = path.join(sourceDir, entry);
+        if (!fs.statSync(from).isFile()) continue;
+        fs.copyFileSync(from, path.join(destDir, entry));
+        copied.push(entry);
+    }
+    return copied;
+}
+
+function readVarint(buf, pos) {
+    let result = 0;
+    let shift = 0;
+    for (;;) {
+        if (pos >= buf.length) throw new Error('truncated varint');
+        const byte = buf[pos++];
+        result += (byte & 0x7f) * Math.pow(2, shift);
+        if ((byte & 0x80) === 0) break;
+        shift += 7;
+    }
+    return [result, pos];
+}
+
+// LevelDB write-ahead log: 32 KiB blocks of [crc32, length, type, payload]
+// fragments that reassemble into write batches.
+function readLogBatches(buf) {
+    const batches = [];
+    let fragments = null;
+    let offset = 0;
+
+    while (offset + LOG_HEADER_SIZE <= buf.length) {
+        const inBlock = offset % LOG_BLOCK_SIZE;
+        if (LOG_BLOCK_SIZE - inBlock < LOG_HEADER_SIZE) {
+            offset += LOG_BLOCK_SIZE - inBlock;
+            continue;
+        }
+
+        const length = buf.readUInt16LE(offset + 4);
+        const type = buf[offset + 6];
+
+        if (type === 0 && length === 0) {
+            offset += LOG_BLOCK_SIZE - inBlock;
+            continue;
+        }
+        if (type > 4 || offset + LOG_HEADER_SIZE + length > buf.length) break;
+
+        const payload = buf.subarray(offset + LOG_HEADER_SIZE, offset + LOG_HEADER_SIZE + length);
+        offset += LOG_HEADER_SIZE + length;
+
+        if (type === 1) {
+            batches.push(payload);
+        } else if (type === 2) {
+            fragments = [payload];
+        } else if (type === 3 && fragments) {
+            fragments.push(payload);
+        } else if (type === 4 && fragments) {
+            fragments.push(payload);
+            batches.push(Buffer.concat(fragments));
+            fragments = null;
+        }
+    }
+
+    return batches;
+}
+
+// A write batch holds a 64-bit sequence number, an entry count, and the entries.
+function readBatchEntries(batch) {
+    const entries = [];
+    if (batch.length < 12) return entries;
+
+    const sequence = Number(batch.readBigUInt64LE(0));
+    const count = batch.readUInt32LE(8);
+    let pos = 12;
+
+    for (let i = 0; i < count; i++) {
+        if (pos >= batch.length) break;
+        const type = batch[pos++];
+        let keyLength;
+        [keyLength, pos] = readVarint(batch, pos);
+        const key = batch.subarray(pos, pos + keyLength);
+        pos += keyLength;
+
+        let value = null;
+        if (type === 1) {
+            let valueLength;
+            [valueLength, pos] = readVarint(batch, pos);
+            value = batch.subarray(pos, pos + valueLength);
+            pos += valueLength;
+        }
+
+        entries.push({ sequence: sequence + i, deleted: type === 0, key, value });
+    }
+
+    return entries;
+}
+
+// IndexedDB keys start with a prefix encoding the database, object store and index ids.
+function readKeyPrefix(key) {
+    const first = key[0];
+    const dbSize = ((first >> 5) & 0x07) + 1;
+    const storeSize = ((first >> 2) & 0x07) + 1;
+    const indexSize = (first & 0x03) + 1;
+
+    let pos = 1;
+    const readLe = (size) => {
+        let value = 0;
+        for (let i = 0; i < size; i++) value += key[pos++] * Math.pow(256, i);
+        return value;
+    };
+
+    const databaseId = readLe(dbSize);
+    const objectStoreId = readLe(storeSize);
+    const indexId = readLe(indexSize);
+
+    return { databaseId, objectStoreId, indexId, rest: key.subarray(pos) };
+}
+
+function decodeIdbKey(buf) {
+    const type = buf[0];
+    if (type === 1) {
+        let length;
+        let pos;
+        [length, pos] = readVarint(buf, 1);
+        let out = '';
+        for (let i = 0; i < length; i++) {
+            out += String.fromCharCode(buf.readUInt16BE(pos));
+            pos += 2;
+        }
+        return out;
+    }
+    if (type === 2 || type === 3) return buf.readDoubleLE(1);
+    throw new Error(`unsupported IndexedDB key type ${type}`);
+}
+
+// An object store value is a varint version, a Blink serialization envelope,
+// and then the V8 payload. Node only reads up to V8 format version 15, so the
+// header is patched down when Chromium wrote a newer one.
+function decodeIdbValue(buf) {
+    let pos = 0;
+    [, pos] = readVarint(buf, pos);
+
+    if (buf[pos] === 0xff) {
+        pos++;
+        let blinkVersion;
+        [blinkVersion, pos] = readVarint(buf, pos);
+        // Blink >= 21 may prepend a trailer tag: 0xFE + 8-byte offset + 4-byte size.
+        if (blinkVersion >= 21 && buf[pos] === 0xfe) pos += 13;
+    }
+
+    if (buf[pos] !== 0xff) throw new Error(`no V8 header found at offset ${pos}`);
+
+    const version = buf[pos + 1];
+    const header = Buffer.from([0xff, Math.min(version, 15)]);
+    return v8.deserialize(Buffer.concat([header, buf.subarray(pos + 2)]));
+}
+
+// Reads the object store names from the database metadata keys.
+function readStoreNames(entries, databaseId) {
+    const names = {};
+    for (const entry of entries) {
+        if (entry.deleted) continue;
+        const prefix = readKeyPrefix(entry.key);
+        if (prefix.databaseId !== databaseId || prefix.objectStoreId !== 0 || prefix.indexId !== 0) continue;
+        // 0x32 = object store metadata, followed by the store id and a metadata type.
+        if (prefix.rest[0] !== 0x32) continue;
+        let storeId;
+        let pos;
+        [storeId, pos] = readVarint(prefix.rest, 1);
+        if (prefix.rest[pos] !== 0x00) continue;
+        try {
+            names[storeId] = entry.value.toString('utf16le').length
+                ? Buffer.from(entry.value).swap16().toString('utf16le')
+                : '';
+        } catch {
+            // Ignore unreadable metadata; the store id is enough to export.
+        }
+    }
+    return names;
+}
+
+function collectEntries(levelDbDir, warnings) {
+    const files = fs.readdirSync(levelDbDir).sort();
+    const ldbFiles = files.filter((f) => f.endsWith('.ldb') || f.endsWith('.sst'));
+    if (ldbFiles.length > 0) {
+        warnings.push(
+            `Skipped ${ldbFiles.length} compacted table file(s) (${ldbFiles.join(', ')}): ` +
+                'this exporter reads only the write-ahead log. Records that Chromium has ' +
+                'already compacted will be missing from the export.'
+        );
+    }
+
+    const entries = [];
+    for (const file of files.filter((f) => f.endsWith('.log'))) {
+        const buf = fs.readFileSync(path.join(levelDbDir, file));
+        for (const batch of readLogBatches(buf)) {
+            entries.push(...readBatchEntries(batch));
+        }
+    }
+    return entries;
+}
+
+function extractStores(entries, warnings, verbose) {
+    const databaseIds = new Set();
+    for (const entry of entries) {
+        const prefix = readKeyPrefix(entry.key);
+        if (prefix.databaseId > 0 && prefix.indexId === 1 && STORES[prefix.objectStoreId]) {
+            databaseIds.add(prefix.databaseId);
+        }
+    }
+
+    if (databaseIds.size === 0) die('no Focus To-Do object store records found in the LevelDB log');
+    if (databaseIds.size > 1) {
+        warnings.push(`Found several IndexedDB databases (${[...databaseIds].join(', ')}); using the lowest id.`);
+    }
+    const databaseId = Math.min(...databaseIds);
+    const storeNames = readStoreNames(entries, databaseId);
+
+    const result = {};
+    for (const storeId of Object.keys(STORES).map(Number)) {
+        // Keep only the newest version of every primary key.
+        const newest = new Map();
+        let raw = 0;
+
+        for (const entry of entries) {
+            const prefix = readKeyPrefix(entry.key);
+            if (prefix.databaseId !== databaseId) continue;
+            if (prefix.objectStoreId !== storeId || prefix.indexId !== 1) continue;
+            if (prefix.rest.length === 0) continue;
+
+            raw++;
+            const key = String(decodeIdbKey(prefix.rest));
+            const previous = newest.get(key);
+            if (!previous || entry.sequence >= previous.sequence) {
+                newest.set(key, { sequence: entry.sequence, deleted: entry.deleted, value: entry.value });
+            }
+        }
+
+        const records = [];
+        let tombstones = 0;
+        for (const [key, entry] of newest) {
+            if (entry.deleted) {
+                tombstones++;
+                continue;
+            }
+            try {
+                records.push(decodeIdbValue(entry.value));
+            } catch (error) {
+                warnings.push(`Could not decode record '${key}' in store ${storeId}: ${error.message}`);
+            }
+        }
+
+        records.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+        result[storeId] = {
+            name: storeNames[storeId] || STORES[storeId].store,
+            file: STORES[storeId].file,
+            rawEntries: raw,
+            tombstones,
+            records,
+        };
+
+        if (verbose) {
+            process.stderr.write(
+                `  store ${storeId} ${result[storeId].name}: ${raw} raw entries, ` +
+                    `${records.length} current records, ${tombstones} deleted\n`
+            );
+        }
+    }
+
+    return { databaseId, stores: result };
+}
+
+function countOrphans(stores) {
+    const ids = (storeId) => new Set(stores[storeId].records.map((r) => r.id));
+    const projectIds = ids(1);
+    const taskIds = ids(2);
+    const subtaskIds = ids(3);
+
+    const missing = (records, field, known) =>
+        records.filter((r) => r[field] && !known.has(r[field])).length;
+
+    return {
+        tasksWithoutProject: missing(stores[2].records, 'projectId', projectIds),
+        subtasksWithoutTask: missing(stores[3].records, 'taskId', taskIds),
+        pomodorosWithoutTask: missing(stores[4].records, 'taskId', taskIds),
+        pomodorosWithoutSubtask: missing(stores[4].records, 'subtaskId', subtaskIds),
+    };
+}
+
+function main() {
+    const opts = parseArgs(process.argv.slice(2));
+
+    const levelDbDir = opts.profile ? resolveLevelDbDir(opts.profile) : autoDetectLevelDbDir();
+    if (!levelDbDir) {
+        die(
+            opts.profile
+                ? `no Focus To-Do IndexedDB found under '${opts.profile}'`
+                : 'no Focus To-Do IndexedDB found in any known Chromium profile; pass --profile <path>'
+        );
+    }
+
+    const outDir = path.resolve(expandHome(opts.out || path.join(__dirname, 'out')));
+
+    process.stderr.write(`Source: ${levelDbDir}\n`);
+    process.stderr.write(`Output: ${outDir}\n`);
+
+    if (opts.dryRun) {
+        process.stderr.write('[DRY-RUN] Would copy the LevelDB files to a temporary directory and write:\n');
+        for (const storeId of Object.keys(STORES).map(Number)) {
+            process.stderr.write(`[DRY-RUN]   ${path.join(outDir, STORES[storeId].file)}\n`);
+        }
+        process.stderr.write(`[DRY-RUN]   ${path.join(outDir, 'summary.json')}\n`);
+        return;
+    }
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'focus-todo-export-'));
+    const cleanup = () => {
+        try {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        } catch {
+            // Nothing useful to do if the temporary directory is already gone.
+        }
+    };
+    process.on('exit', cleanup);
+    for (const signal of ['SIGINT', 'SIGTERM']) {
+        process.on(signal, () => {
+            cleanup();
+            process.exit(signal === 'SIGINT' ? 130 : 143);
+        });
+    }
+
+    const warnings = [];
+    copyLevelDb(levelDbDir, tempDir);
+
+    const entries = collectEntries(tempDir, warnings);
+    if (opts.verbose) process.stderr.write(`Read ${entries.length} LevelDB log entries\n`);
+
+    const { databaseId, stores } = extractStores(entries, warnings, opts.verbose);
+
+    fs.mkdirSync(outDir, { recursive: true });
+    const counts = {};
+    for (const storeId of Object.keys(stores).map(Number)) {
+        const store = stores[storeId];
+        fs.writeFileSync(path.join(outDir, store.file), `${JSON.stringify(store.records, null, 2)}\n`);
+        counts[store.name] = {
+            objectStore: `os${storeId}`,
+            file: store.file,
+            rawEntries: store.rawEntries,
+            records: store.records.length,
+            deleted: store.tombstones,
+        };
+    }
+
+    const summary = {
+        exportedAt: new Date().toISOString(),
+        source: levelDbDir,
+        extensionId: EXTENSION_ID,
+        databaseId,
+        stores: counts,
+        orphans: countOrphans(stores),
+        warnings,
+    };
+    fs.writeFileSync(path.join(outDir, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
+
+    for (const warning of warnings) process.stderr.write(`Warning: ${warning}\n`);
+    for (const name of Object.keys(counts)) {
+        process.stderr.write(`${name.padEnd(10)} ${String(counts[name].records).padStart(5)} records\n`);
+    }
+    process.stderr.write(`Wrote ${Object.keys(counts).length + 1} files to ${outDir}\n`);
+}
+
+try {
+    main();
+} catch (error) {
+    die(error.message);
+}

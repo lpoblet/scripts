@@ -1,0 +1,304 @@
+#!/usr/bin/env node
+'use strict';
+
+// Stage 2 of the Focus To-Do export: turns the JSON written by
+// focus-todo-export into a re-runnable Postgres INSERT script.
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const SCRIPT_NAME = path.basename(process.argv[1]);
+
+// Column definitions per table, in dependency order.
+// kind: text | int | bool | ts (epoch milliseconds, 0 -> NULL)
+// ref:  table whose ids must contain the value; dangling values become NULL.
+const TABLES = [
+    {
+        table: 'projects',
+        file: 'projects.json',
+        columns: [
+            { column: 'id', field: 'id', kind: 'text' },
+            { column: 'name', field: 'name', kind: 'text' },
+            { column: 'obj_type', field: 'objType', kind: 'text' },
+            { column: 'parent_id', field: 'parentId', kind: 'text', ref: 'projects' },
+            { column: 'color', field: 'color', kind: 'text' },
+            { column: 'image_name', field: 'imageName', kind: 'text' },
+            { column: 'is_default', field: 'isDefault', kind: 'bool' },
+            { column: 'expanded', field: 'expanded', kind: 'bool' },
+            { column: 'ordering_rule', field: 'orderingRule', kind: 'int' },
+            { column: 'type', field: 'type', kind: 'int' },
+            { column: 'sort_order', field: 'order', kind: 'int' },
+            { column: 'state', field: 'state', kind: 'int' },
+            { column: 'sync', field: 'sync', kind: 'int' },
+            { column: 'creation_date', field: 'creationDate', kind: 'ts' },
+        ],
+    },
+    {
+        table: 'tasks',
+        file: 'tasks.json',
+        columns: [
+            { column: 'id', field: 'id', kind: 'text' },
+            { column: 'project_id', field: 'projectId', kind: 'text', ref: 'projects' },
+            { column: 'name', field: 'name', kind: 'text' },
+            { column: 'obj_type', field: 'objType', kind: 'text' },
+            { column: 'remark', field: 'remark', kind: 'text' },
+            { column: 'tags', field: 'tags', kind: 'text' },
+            { column: 'priority', field: 'priority', kind: 'int' },
+            { column: 'sort_order', field: 'order', kind: 'int' },
+            { column: 'state', field: 'state', kind: 'int' },
+            { column: 'sync', field: 'sync', kind: 'int' },
+            { column: 'is_finished', field: 'isFinished', kind: 'bool' },
+            { column: 'is_expanded', field: 'isExpanded', kind: 'bool' },
+            { column: 'has_subtask', field: 'hasSubtask', kind: 'bool' },
+            { column: 'estimate_pomo_num', field: 'estimatePomoNum', kind: 'int' },
+            { column: 'actual_pomo_num', field: 'actualPomoNum', kind: 'int' },
+            { column: 'pomodoro_interval', field: 'pomodoroInterval', kind: 'int' },
+            { column: 'creation_date', field: 'creationDate', kind: 'ts' },
+            { column: 'deadline', field: 'deadline', kind: 'ts' },
+            { column: 'finished_date', field: 'finishedDate', kind: 'ts' },
+            { column: 'reminder_date', field: 'reminderDate', kind: 'ts' },
+            { column: 'reminders', field: 'reminders', kind: 'text' },
+            { column: 'r_id', field: 'rId', kind: 'text' },
+            { column: 'r_cycle', field: 'rCycle', kind: 'int' },
+            { column: 'r_unit', field: 'rUnit', kind: 'text' },
+            { column: 'r_value', field: 'rValue', kind: 'text' },
+            { column: 'r_first_deadline', field: 'rFirstDeadline', kind: 'ts' },
+            { column: 'r_start_date', field: 'rStartDate', kind: 'ts' },
+            { column: 'r_end_date', field: 'rEndDate', kind: 'ts' },
+        ],
+    },
+    {
+        table: 'subtasks',
+        file: 'subtasks.json',
+        columns: [
+            { column: 'id', field: 'id', kind: 'text' },
+            { column: 'task_id', field: 'taskId', kind: 'text', ref: 'tasks' },
+            { column: 'name', field: 'name', kind: 'text' },
+            { column: 'obj_type', field: 'objType', kind: 'text' },
+            { column: 'is_finished', field: 'isFinished', kind: 'bool' },
+            { column: 'estimated_pomo_num', field: 'estimatedPomoNum', kind: 'int' },
+            { column: 'sort_order', field: 'order', kind: 'int' },
+            { column: 'state', field: 'state', kind: 'int' },
+            { column: 'sync', field: 'sync', kind: 'int' },
+            { column: 'creation_date', field: 'creationDate', kind: 'ts' },
+            { column: 'finished_date', field: 'finishedDate', kind: 'ts' },
+        ],
+    },
+    {
+        table: 'pomodoro_sessions',
+        file: 'pomodoro_sessions.json',
+        columns: [
+            { column: 'id', field: 'id', kind: 'text' },
+            { column: 'task_id', field: 'taskId', kind: 'text', ref: 'tasks' },
+            { column: 'subtask_id', field: 'subtaskId', kind: 'text', ref: 'subtasks' },
+            { column: 'obj_type', field: 'objType', kind: 'text' },
+            { column: 'interval_seconds', field: 'interval', kind: 'int' },
+            { column: 'pomodoro_interval', field: 'pomodoroInterval', kind: 'int' },
+            { column: 'is_manual', field: 'isManual', kind: 'bool' },
+            { column: 'state', field: 'state', kind: 'int' },
+            { column: 'sync', field: 'sync', kind: 'int' },
+            { column: 'creation_date', field: 'creationDate', kind: 'ts' },
+            { column: 'end_date', field: 'endDate', kind: 'ts' },
+        ],
+    },
+];
+
+function usage() {
+    process.stdout.write(`Usage: ${SCRIPT_NAME} [OPTIONS]
+
+Generates a Postgres INSERT script from the JSON files written by
+focus-todo-export. Inserts are emitted in dependency order and use
+ON CONFLICT (id) DO NOTHING, so the file can be loaded repeatedly.
+
+Options:
+  -i, --in <dir>          Directory holding the exported JSON
+                          (default: <script dir>/out)
+  -o, --out <file>        Output SQL file; "-" writes to stdout
+                          (default: <in dir>/data.sql)
+  -n, --dry-run           Report the row counts only; write nothing
+  -h, --help              Show this help message and exit
+
+Examples:
+  ${SCRIPT_NAME}
+  ${SCRIPT_NAME} --dry-run
+  ${SCRIPT_NAME} --in ~/focus-todo-export --out /tmp/data.sql
+`);
+}
+
+function die(message, code) {
+    process.stderr.write(`Error: ${message}\n`);
+    process.exit(code === undefined ? 1 : code);
+}
+
+function usageError(message) {
+    process.stderr.write(`Error: ${message}\n`);
+    const out = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk) => process.stderr.write(chunk);
+    usage();
+    process.stdout.write = out;
+    process.exit(2);
+}
+
+function parseArgs(argv) {
+    const opts = { in: '', out: '', dryRun: false };
+
+    for (let i = 0; i < argv.length; i++) {
+        const arg = argv[i];
+        switch (arg) {
+            case '-h':
+            case '--help':
+                usage();
+                process.exit(0);
+                break;
+            case '-n':
+            case '--dry-run':
+                opts.dryRun = true;
+                break;
+            case '-i':
+            case '--in':
+                if (++i >= argv.length) usageError(`Option '${arg}' requires a value`);
+                opts.in = argv[i];
+                break;
+            case '-o':
+            case '--out':
+                if (++i >= argv.length) usageError(`Option '${arg}' requires a value`);
+                opts.out = argv[i];
+                break;
+            default:
+                if (arg.startsWith('-')) usageError(`Unknown option '${arg}'`);
+                usageError(`Unexpected argument '${arg}'`);
+        }
+    }
+
+    return opts;
+}
+
+function expandHome(p) {
+    if (p === '~') return os.homedir();
+    if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
+    return p;
+}
+
+// Dollar-quoting is avoided: every string is single-quoted with doubled
+// quotes, and backslashes force the E'' form so they stay literal.
+function quoteText(value) {
+    const escaped = String(value).replace(/'/g, "''");
+    if (escaped.includes('\\')) return `E'${escaped.replace(/\\/g, '\\\\')}'`;
+    return `'${escaped}'`;
+}
+
+function renderValue(spec, record) {
+    const raw = record[spec.field];
+    if (raw === undefined || raw === null) return 'NULL';
+
+    switch (spec.kind) {
+        case 'bool':
+            return raw ? 'TRUE' : 'FALSE';
+        case 'int':
+            return Number.isFinite(Number(raw)) ? String(Math.round(Number(raw))) : 'NULL';
+        case 'ts': {
+            const ms = Number(raw);
+            // 0 is the extension's "unset" marker for every date field.
+            if (!Number.isFinite(ms) || ms === 0) return 'NULL';
+            return `to_timestamp(${(ms / 1000).toFixed(3)})`;
+        }
+        default:
+            return raw === '' ? "''" : quoteText(raw);
+    }
+}
+
+function readRecords(inDir, file) {
+    const full = path.join(inDir, file);
+    if (!fs.existsSync(full)) die(`missing export file '${full}'; run focus-todo-export first`);
+    try {
+        const parsed = JSON.parse(fs.readFileSync(full, 'utf8'));
+        if (!Array.isArray(parsed)) throw new Error('expected a JSON array');
+        return parsed;
+    } catch (error) {
+        die(`could not read '${full}': ${error.message}`);
+    }
+    return [];
+}
+
+function main() {
+    const opts = parseArgs(process.argv.slice(2));
+    const inDir = path.resolve(expandHome(opts.in || path.join(__dirname, 'out')));
+    const outPath = opts.out === '-' ? '-' : path.resolve(expandHome(opts.out || path.join(inDir, 'data.sql')));
+
+    const loaded = TABLES.map((spec) => ({ spec, records: readRecords(inDir, spec.file) }));
+    const knownIds = {};
+    for (const { spec, records } of loaded) {
+        knownIds[spec.table] = new Set(records.map((r) => String(r.id)));
+    }
+
+    const orphans = [];
+    const lines = [
+        '-- Generated by focus-todo-sqlgen. Do not edit by hand.',
+        `-- Source: ${inDir}`,
+        `-- Generated: ${new Date().toISOString()}`,
+        '--',
+        '-- Apply schema.sql first. This file is re-runnable: existing ids are skipped.',
+        '',
+        'BEGIN;',
+        '',
+    ];
+
+    const counts = {};
+    for (const { spec, records } of loaded) {
+        counts[spec.table] = records.length;
+        lines.push(`-- ${spec.table}: ${records.length} rows`);
+        if (records.length === 0) {
+            lines.push('');
+            continue;
+        }
+
+        const columnList = spec.columns.map((c) => c.column).join(', ');
+        for (const record of records) {
+            const values = spec.columns.map((column) => {
+                const raw = record[column.field];
+                // Keep orphaned rows, but drop the dangling reference.
+                if (column.ref && raw && !knownIds[column.ref].has(String(raw))) {
+                    orphans.push(`${spec.table}.${column.column}='${raw}' (row ${record.id})`);
+                    return 'NULL';
+                }
+                if (column.ref && raw === '') return 'NULL';
+                return renderValue(column, record);
+            });
+            lines.push(
+                `INSERT INTO ${spec.table} (${columnList}) VALUES (${values.join(', ')}) ` +
+                    'ON CONFLICT (id) DO NOTHING;'
+            );
+        }
+        lines.push('');
+    }
+
+    lines.push('COMMIT;');
+    const sql = `${lines.join('\n')}\n`;
+
+    for (const orphan of orphans) {
+        process.stderr.write(`Warning: dangling reference imported as NULL: ${orphan}\n`);
+    }
+    for (const table of Object.keys(counts)) {
+        process.stderr.write(`${table.padEnd(18)} ${String(counts[table]).padStart(5)} rows\n`);
+    }
+
+    if (opts.dryRun) {
+        process.stderr.write(`[DRY-RUN] Would write ${outPath === '-' ? 'stdout' : outPath}\n`);
+        return;
+    }
+
+    if (outPath === '-') {
+        process.stdout.write(sql);
+    } else {
+        fs.mkdirSync(path.dirname(outPath), { recursive: true });
+        fs.writeFileSync(outPath, sql);
+        process.stderr.write(`Wrote ${outPath}\n`);
+    }
+}
+
+try {
+    main();
+} catch (error) {
+    die(error.message);
+}

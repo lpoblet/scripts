@@ -25,6 +25,10 @@ id_ed25519*
 # Project specific
 .junie/
 
+# Focus To-Do export output (contains personal data)
+focus-todo/out/
+focus-todo/data.sql
+
 # System files
 .DS_Store
 Thumbs.db

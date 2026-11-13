@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: focus-todo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-focustodo}
+      POSTGRES_USER: ${POSTGRES_USER:-focustodo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-focustodo}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - focus-todo-pgdata:/var/lib/postgresql/data
+      # Applied once, when the data volume is first created.
+      - ./schema.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
+      # Exported data, so data.sql can be loaded with psql from inside the container.
+      - ./out:/export:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-focustodo} -d ${POSTGRES_DB:-focustodo}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  focus-todo-pgdata:
